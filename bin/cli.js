@@ -22,8 +22,6 @@ const discovery = require('../lib/discovery');
 const transforms = require('../lib/adapter-transforms');
 const { resolveExecutableForPlatform } = require('../lib/utils/command-parser');
 
-const claudeBin = resolveExecutableForPlatform('claude');
-
 // Valid tool names
 const VALID_TOOLS = ['claude', 'opencode', 'codex', 'cursor', 'kiro'];
 
@@ -64,6 +62,51 @@ function commandExists(cmd) {
   } catch {
     return false;
   }
+}
+
+// Extensions CreateProcess can launch directly. .ps1 and the extensionless npm
+// shell script also show up in `where.exe` output but cannot be spawned.
+const WINDOWS_SPAWNABLE = /\.(exe|com|cmd|bat)$/i;
+
+/**
+ * Pick the Claude Code executable from a `where.exe claude` result.
+ *
+ * execFileSync does not apply PATHEXT, so an extensionless 'claude' cannot be
+ * spawned on Windows - but the suffix is not knowable either: the npm global
+ * install provides claude.cmd while the native installer provides claude.exe.
+ * Prefer the first spawnable path the OS resolved, and fall back to the shim
+ * mapping. Kept pure so the win32 branch is testable off Windows.
+ */
+function pickClaudeExecutable(platform, whereOutput) {
+  if (platform !== 'win32') {
+    return 'claude';
+  }
+  const spawnable = String(whereOutput || '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .find(candidate => WINDOWS_SPAWNABLE.test(candidate));
+  return spawnable || resolveExecutableForPlatform('claude', platform);
+}
+
+let claudeBinCache;
+
+/**
+ * Resolve the Claude Code executable once per process.
+ */
+function claudeExecutable() {
+  if (claudeBinCache === undefined) {
+    let whereOutput = '';
+    if (process.platform === 'win32') {
+      try {
+        whereOutput = execFileSync('where.exe', ['claude'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      } catch {
+        // Fall back to the shim mapping below.
+      }
+    }
+    claudeBinCache = pickClaudeExecutable(process.platform, whereOutput);
+  }
+  return claudeBinCache;
 }
 
 function copyDirRecursive(src, dest) {
@@ -1065,6 +1108,8 @@ async function installPlugin(nameWithVersion, args) {
     copyFromPackage(installDir);
   }
 
+  const claudeFailures = [];
+
   for (const platform of platforms) {
     if (platform === 'claude') {
       if (filter) {
@@ -1072,13 +1117,18 @@ async function installPlugin(nameWithVersion, args) {
       }
       // Claude uses marketplace install
       if (commandExists('claude')) {
-        try { execFileSync(claudeBin, ['plugin', 'marketplace', 'add', 'agent-sh/agentsys'], { stdio: 'pipe' }); } catch {}
+        try { execFileSync(claudeExecutable(), ['plugin', 'marketplace', 'add', 'agent-sh/agentsys'], { stdio: 'pipe' }); } catch {}
         for (const depName of toFetch) {
           if (!/^[a-z0-9][a-z0-9-]*$/.test(depName)) continue;
           try {
-            execFileSync(claudeBin, ['plugin', 'install', `${depName}@agentsys`], { stdio: 'pipe' });
+            execFileSync(claudeExecutable(), ['plugin', 'install', `${depName}@agentsys`], { stdio: 'pipe' });
           } catch {
-            try { execFileSync(claudeBin, ['plugin', 'update', `${depName}@agentsys`], { stdio: 'pipe' }); } catch {}
+            try {
+              execFileSync(claudeExecutable(), ['plugin', 'update', `${depName}@agentsys`], { stdio: 'pipe' });
+            } catch {
+              // Do not report success for a plugin Claude Code never received.
+              claudeFailures.push(depName);
+            }
           }
         }
       }
@@ -1115,7 +1165,12 @@ async function installPlugin(nameWithVersion, args) {
     }
   }
 
-  console.log(`\n[OK] Installed ${name} successfully.`);
+  if (claudeFailures.length > 0) {
+    console.log(`\n[WARN] Installed ${name}, but Claude Code rejected: ${claudeFailures.join(', ')}`);
+    console.log(`       Retry with: claude plugin install <name>@agentsys`);
+  } else {
+    console.log(`\n[OK] Installed ${name} successfully.`);
+  }
 }
 
 // --- remove subcommand ---
@@ -1141,7 +1196,7 @@ function removePlugin(name) {
   // Remove from platforms
   if (platforms.includes('claude') && commandExists('claude')) {
     try {
-      execFileSync(claudeBin, ['plugin', 'uninstall', `${name}@agentsys`], { stdio: 'pipe' });
+      execFileSync(claudeExecutable(), ['plugin', 'uninstall', `${name}@agentsys`], { stdio: 'pipe' });
       console.log(`  Removed from Claude Code: ${name}`);
     } catch {}
   }
@@ -1247,7 +1302,7 @@ function installForClaude() {
     // Add GitHub marketplace
     console.log('Adding marketplace...');
     try {
-      execFileSync(claudeBin, ['plugin', 'marketplace', 'add', 'agent-sh/agentsys'], { stdio: 'pipe' });
+      execFileSync(claudeExecutable(), ['plugin', 'marketplace', 'add', 'agent-sh/agentsys'], { stdio: 'pipe' });
     } catch {
       // May already exist
     }
@@ -1261,17 +1316,17 @@ function installForClaude() {
       console.log(`  Installing ${plugin}...`);
       // Remove pre-rename plugin ID to prevent dual loading on upgrade
       try {
-        execFileSync(claudeBin, ['plugin', 'uninstall', `${plugin}@awesome-slash`], { stdio: 'pipe' });
+        execFileSync(claudeExecutable(), ['plugin', 'uninstall', `${plugin}@awesome-slash`], { stdio: 'pipe' });
       } catch {
         // Not installed under old name
       }
       try {
         // Try install first
-        execFileSync(claudeBin, ['plugin', 'install', `${plugin}@agentsys`], { stdio: 'pipe' });
+        execFileSync(claudeExecutable(), ['plugin', 'install', `${plugin}@agentsys`], { stdio: 'pipe' });
       } catch {
         // If install fails (already installed), try update
         try {
-          execFileSync(claudeBin, ['plugin', 'update', `${plugin}@agentsys`], { stdio: 'pipe' });
+          execFileSync(claudeExecutable(), ['plugin', 'update', `${plugin}@agentsys`], { stdio: 'pipe' });
         } catch {
           failedPlugins.push(plugin);
         }
@@ -1310,7 +1365,7 @@ function installForClaudeDevelopment() {
   // Remove marketplace plugins first
   console.log('Removing marketplace plugins...');
   try {
-    execFileSync(claudeBin, ['plugin', 'marketplace', 'remove', 'agent-sh/agentsys'], { stdio: 'pipe' });
+    execFileSync(claudeExecutable(), ['plugin', 'marketplace', 'remove', 'agent-sh/agentsys'], { stdio: 'pipe' });
     console.log('  [OK] Removed marketplace');
   } catch {
     // May not exist
@@ -1322,7 +1377,7 @@ function installForClaudeDevelopment() {
     // Uninstall both current and pre-rename plugin IDs
     for (const suffix of ['agentsys', 'awesome-slash']) {
       try {
-        execFileSync(claudeBin, ['plugin', 'uninstall', `${plugin}@${suffix}`], { stdio: 'pipe' });
+        execFileSync(claudeExecutable(), ['plugin', 'uninstall', `${plugin}@${suffix}`], { stdio: 'pipe' });
         console.log(`  [OK] Uninstalled ${plugin}@${suffix}`);
       } catch {
         // May not be installed
@@ -2291,5 +2346,7 @@ module.exports = {
   resolvePluginSource,
   parseGitHubSource,
   installForCursor,
-  installForKiro
+  installForKiro,
+  pickClaudeExecutable,
+  claudeExecutable
 };

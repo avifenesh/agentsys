@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const { parseCommand, resolveExecutableForPlatform } = require('../lib/utils/command-parser');
 
 describe('command parser', () => {
@@ -65,5 +67,16 @@ describe('resolveExecutableForPlatform', () => {
 
   test('uses cmd shim for claude on windows', () => {
     expect(resolveExecutableForPlatform('claude', 'win32')).toBe('claude.cmd');
+  });
+});
+
+describe('command-parser source hygiene', () => {
+  test('rejects a null byte in an argument', () => {
+    expect(() => parseCommand('node --eval a\0b')).toThrow(/null byte/);
+  });
+
+  test('source carries no raw null byte, so git and grep treat it as text', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'utils', 'command-parser.js'));
+    expect(source.indexOf(0)).toBe(-1);
   });
 });

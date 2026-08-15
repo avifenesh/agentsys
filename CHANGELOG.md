@@ -11,7 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Claude plugin marketplace/install/update/uninstall in `bin/cli.js` now spawn via `execFileSync` with an argv array (no shell) and resolve `claude.cmd` on Windows, where `execFileSync` does not apply PATHEXT (#388).
+- Claude plugin marketplace/install/update/uninstall in `bin/cli.js` now spawn via `execFileSync` with an argv array, so no plugin ID reaches a shell (#388).
+
+### Fixed
+
+- Windows: the Claude Code executable is now resolved from `where.exe` instead of assuming the npm shim. `execFileSync` does not apply PATHEXT, and the previous hardcoded `claude.cmd` did not exist for native-installer users who have `claude.exe` - those calls raised `ENOENT`, the error was swallowed, and the CLI reported success while installing nothing.
+- `agentsys install` no longer reports `[OK] Installed ... successfully` when Claude Code rejected a plugin. It names the plugins that failed and how to retry.
+- `lib/utils/command-parser.js` used a raw null byte where `'\0'` was intended. Git and grep classified the file as binary, so changes to it could not be reviewed as a diff. Also normalized to LF, the only CRLF-encoded source file in the repo.
 
 ## [6.0.1] - 2026-07-22
 

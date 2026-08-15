@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 
 // Import parseArgs directly from cli.js (now exported for testing)
-const { parseArgs, VALID_TOOLS } = require('../bin/cli.js');
+const { parseArgs, VALID_TOOLS, pickClaudeExecutable, claudeExecutable } = require('../bin/cli.js');
 
 describe('CLI argument parsing', () => {
   // Save original process.exit and restore after each test
@@ -188,6 +188,51 @@ describe('CLI argument parsing', () => {
   });
 });
 
+describe('pickClaudeExecutable', () => {
+  test('uses plain claude on posix and ignores any where output', () => {
+    expect(pickClaudeExecutable('linux', '')).toBe('claude');
+    expect(pickClaudeExecutable('darwin', 'C:\\npm\\claude.cmd')).toBe('claude');
+  });
+
+  test('uses the npm global shim path that where.exe resolved', () => {
+    const shim = 'C:\\Users\\u\\AppData\\Roaming\\npm\\claude.cmd';
+    expect(pickClaudeExecutable('win32', `${shim}\r\n`)).toBe(shim);
+  });
+
+  test('uses claude.exe from the native installer instead of assuming .cmd', () => {
+    const native = 'C:\\Users\\u\\.local\\bin\\claude.exe';
+    expect(pickClaudeExecutable('win32', `${native}\r\n`)).toBe(native);
+  });
+
+  test('takes the first match when where.exe reports several', () => {
+    const out = 'C:\\Users\\u\\.local\\bin\\claude.exe\r\nC:\\npm\\claude.cmd\r\n';
+    expect(pickClaudeExecutable('win32', out)).toBe('C:\\Users\\u\\.local\\bin\\claude.exe');
+  });
+
+  test('skips entries CreateProcess cannot launch', () => {
+    // npm ships an extensionless shell script and a .ps1 alongside the .cmd
+    const out = 'C:\\npm\\claude\r\nC:\\npm\\claude.ps1\r\nC:\\npm\\claude.cmd\r\n';
+    expect(pickClaudeExecutable('win32', out)).toBe('C:\\npm\\claude.cmd');
+  });
+
+  test('falls back to the cmd shim when nothing spawnable was resolved', () => {
+    expect(pickClaudeExecutable('win32', '')).toBe('claude.cmd');
+    expect(pickClaudeExecutable('win32', '  \r\n \r\n')).toBe('claude.cmd');
+    expect(pickClaudeExecutable('win32', undefined)).toBe('claude.cmd');
+    expect(pickClaudeExecutable('win32', 'C:\\npm\\claude.ps1\r\n')).toBe('claude.cmd');
+  });
+
+  test('claudeExecutable resolves and caches without a shell on this platform', () => {
+    const first = claudeExecutable();
+    expect(typeof first).toBe('string');
+    expect(first.length).toBeGreaterThan(0);
+    expect(claudeExecutable()).toBe(first);
+    if (process.platform !== 'win32') {
+      expect(first).toBe('claude');
+    }
+  });
+});
+
 describe('VALID_TOOLS constant', () => {
   test('contains expected tools', () => {
     expect(VALID_TOOLS).toEqual(['claude', 'opencode', 'codex', 'cursor', 'kiro']);
@@ -237,10 +282,13 @@ describe('CLI integration', () => {
   });
 
   test('claude plugin commands use execFileSync without a shell', () => {
-    expect(cliSource).toContain('execFileSync(claudeBin,');
-    expect(cliSource).toContain("resolveExecutableForPlatform('claude')");
+    expect(cliSource).toContain('execFileSync(claudeExecutable(),');
     expect(cliSource).not.toMatch(/execSync\(`claude plugin/);
     expect(cliSource).not.toMatch(/execSync\('claude plugin/);
+  });
+
+  test('claude executable is never hardcoded to a single windows suffix', () => {
+    expect(cliSource).not.toMatch(/claudeBin = resolveExecutableForPlatform\('claude'\)/);
   });
 });
 
