@@ -1073,9 +1073,9 @@ async function installPlugin(nameWithVersion, args) {
         for (const depName of toFetch) {
           if (!/^[a-z0-9][a-z0-9-]*$/.test(depName)) continue;
           try {
-            execSync(`claude plugin install ${depName}@agentsys`, { stdio: 'pipe' });
+            execFileSync('claude', ['plugin', 'install', `${depName}@agentsys`], { stdio: 'pipe' });
           } catch {
-            try { execSync(`claude plugin update ${depName}@agentsys`, { stdio: 'pipe' }); } catch {}
+            try { execFileSync('claude', ['plugin', 'update', `${depName}@agentsys`], { stdio: 'pipe' }); } catch {}
           }
         }
       }
@@ -1138,7 +1138,7 @@ function removePlugin(name) {
   // Remove from platforms
   if (platforms.includes('claude') && commandExists('claude')) {
     try {
-      execSync(`claude plugin uninstall ${name}@agentsys`, { stdio: 'pipe' });
+      execFileSync('claude', ['plugin', 'uninstall', `${name}@agentsys`], { stdio: 'pipe' });
       console.log(`  Removed from Claude Code: ${name}`);
     } catch {}
   }
@@ -1258,17 +1258,17 @@ function installForClaude() {
       console.log(`  Installing ${plugin}...`);
       // Remove pre-rename plugin ID to prevent dual loading on upgrade
       try {
-        execSync(`claude plugin uninstall ${plugin}@awesome-slash`, { stdio: 'pipe' });
+        execFileSync('claude', ['plugin', 'uninstall', `${plugin}@awesome-slash`], { stdio: 'pipe' });
       } catch {
         // Not installed under old name
       }
       try {
         // Try install first
-        execSync(`claude plugin install ${plugin}@agentsys`, { stdio: 'pipe' });
+        execFileSync('claude', ['plugin', 'install', `${plugin}@agentsys`], { stdio: 'pipe' });
       } catch {
         // If install fails (already installed), try update
         try {
-          execSync(`claude plugin update ${plugin}@agentsys`, { stdio: 'pipe' });
+          execFileSync('claude', ['plugin', 'update', `${plugin}@agentsys`], { stdio: 'pipe' });
         } catch {
           failedPlugins.push(plugin);
         }
@@ -1319,7 +1319,7 @@ function installForClaudeDevelopment() {
     // Uninstall both current and pre-rename plugin IDs
     for (const suffix of ['agentsys', 'awesome-slash']) {
       try {
-        execSync(`claude plugin uninstall ${plugin}@${suffix}`, { stdio: 'pipe' });
+        execFileSync('claude', ['plugin', 'uninstall', `${plugin}@${suffix}`], { stdio: 'pipe' });
         console.log(`  [OK] Uninstalled ${plugin}@${suffix}`);
       } catch {
         // May not be installed
