@@ -90,7 +90,7 @@ describe('newModule', () => {
 
 Run tests:
 ```bash
-npm test -- --testPathPattern=new-module
+npm test -- --testPathPatterns=new-module
 ```
 
 ## 4. Sync to Plugins
@@ -143,7 +143,7 @@ const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
 npm test
 
 # Verify all tests pass
-npm test -- --testPathPattern={module-name}
+npm test -- --testPathPatterns={module-name}
 ```
 
 ## 9. Commit Both Source and Copies

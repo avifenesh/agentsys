@@ -223,7 +223,7 @@ These issues were found across all plugins during comprehensive audit and **have
 
 ## Automated Tests
 
-Run `npm test -- --testPathPattern=agent-skill-compliance` to validate:
+Run `npm test -- --testPathPatterns=agent-skill-compliance` to validate:
 - All agents invoking skills have `Skill` tool
 - All skill directories match their skill names
 - All skill names follow the standard format
