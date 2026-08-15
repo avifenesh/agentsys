@@ -62,4 +62,8 @@ describe('resolveExecutableForPlatform', () => {
   test('keeps path executable unchanged when not from .bin', () => {
     expect(resolveExecutableForPlatform('tools/vitest', 'win32')).toBe('tools/vitest');
   });
+
+  test('uses cmd shim for claude on windows', () => {
+    expect(resolveExecutableForPlatform('claude', 'win32')).toBe('claude.cmd');
+  });
 });

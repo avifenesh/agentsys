@@ -20,6 +20,9 @@ const VERSION = require('../package.json').version;
 const PACKAGE_DIR = path.join(__dirname, '..');
 const discovery = require('../lib/discovery');
 const transforms = require('../lib/adapter-transforms');
+const { resolveExecutableForPlatform } = require('../lib/utils/command-parser');
+
+const claudeBin = resolveExecutableForPlatform('claude');
 
 // Valid tool names
 const VALID_TOOLS = ['claude', 'opencode', 'codex', 'cursor', 'kiro'];
@@ -1069,13 +1072,13 @@ async function installPlugin(nameWithVersion, args) {
       }
       // Claude uses marketplace install
       if (commandExists('claude')) {
-        try { execSync('claude plugin marketplace add agent-sh/agentsys', { stdio: 'pipe' }); } catch {}
+        try { execFileSync(claudeBin, ['plugin', 'marketplace', 'add', 'agent-sh/agentsys'], { stdio: 'pipe' }); } catch {}
         for (const depName of toFetch) {
           if (!/^[a-z0-9][a-z0-9-]*$/.test(depName)) continue;
           try {
-            execFileSync('claude', ['plugin', 'install', `${depName}@agentsys`], { stdio: 'pipe' });
+            execFileSync(claudeBin, ['plugin', 'install', `${depName}@agentsys`], { stdio: 'pipe' });
           } catch {
-            try { execFileSync('claude', ['plugin', 'update', `${depName}@agentsys`], { stdio: 'pipe' }); } catch {}
+            try { execFileSync(claudeBin, ['plugin', 'update', `${depName}@agentsys`], { stdio: 'pipe' }); } catch {}
           }
         }
       }
@@ -1138,7 +1141,7 @@ function removePlugin(name) {
   // Remove from platforms
   if (platforms.includes('claude') && commandExists('claude')) {
     try {
-      execFileSync('claude', ['plugin', 'uninstall', `${name}@agentsys`], { stdio: 'pipe' });
+      execFileSync(claudeBin, ['plugin', 'uninstall', `${name}@agentsys`], { stdio: 'pipe' });
       console.log(`  Removed from Claude Code: ${name}`);
     } catch {}
   }
@@ -1244,7 +1247,7 @@ function installForClaude() {
     // Add GitHub marketplace
     console.log('Adding marketplace...');
     try {
-      execSync('claude plugin marketplace add agent-sh/agentsys', { stdio: 'pipe' });
+      execFileSync(claudeBin, ['plugin', 'marketplace', 'add', 'agent-sh/agentsys'], { stdio: 'pipe' });
     } catch {
       // May already exist
     }
@@ -1258,17 +1261,17 @@ function installForClaude() {
       console.log(`  Installing ${plugin}...`);
       // Remove pre-rename plugin ID to prevent dual loading on upgrade
       try {
-        execFileSync('claude', ['plugin', 'uninstall', `${plugin}@awesome-slash`], { stdio: 'pipe' });
+        execFileSync(claudeBin, ['plugin', 'uninstall', `${plugin}@awesome-slash`], { stdio: 'pipe' });
       } catch {
         // Not installed under old name
       }
       try {
         // Try install first
-        execFileSync('claude', ['plugin', 'install', `${plugin}@agentsys`], { stdio: 'pipe' });
+        execFileSync(claudeBin, ['plugin', 'install', `${plugin}@agentsys`], { stdio: 'pipe' });
       } catch {
         // If install fails (already installed), try update
         try {
-          execFileSync('claude', ['plugin', 'update', `${plugin}@agentsys`], { stdio: 'pipe' });
+          execFileSync(claudeBin, ['plugin', 'update', `${plugin}@agentsys`], { stdio: 'pipe' });
         } catch {
           failedPlugins.push(plugin);
         }
@@ -1307,7 +1310,7 @@ function installForClaudeDevelopment() {
   // Remove marketplace plugins first
   console.log('Removing marketplace plugins...');
   try {
-    execSync('claude plugin marketplace remove agent-sh/agentsys', { stdio: 'pipe' });
+    execFileSync(claudeBin, ['plugin', 'marketplace', 'remove', 'agent-sh/agentsys'], { stdio: 'pipe' });
     console.log('  [OK] Removed marketplace');
   } catch {
     // May not exist
@@ -1319,7 +1322,7 @@ function installForClaudeDevelopment() {
     // Uninstall both current and pre-rename plugin IDs
     for (const suffix of ['agentsys', 'awesome-slash']) {
       try {
-        execFileSync('claude', ['plugin', 'uninstall', `${plugin}@${suffix}`], { stdio: 'pipe' });
+        execFileSync(claudeBin, ['plugin', 'uninstall', `${plugin}@${suffix}`], { stdio: 'pipe' });
         console.log(`  [OK] Uninstalled ${plugin}@${suffix}`);
       } catch {
         // May not be installed
