@@ -81,7 +81,7 @@
     "node": ">=18.0.0"
   },
   "devDependencies": {
-    "jest": "^29.7.0"
+    "jest": "^30.4.2"
   },
   "workspaces": [
     "lib"
