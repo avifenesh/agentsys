@@ -235,5 +235,12 @@ describe('CLI integration', () => {
   test('cli.js has installForKiro function', () => {
     expect(cliSource.includes('function installForKiro(')).toBe(true);
   });
+
+  test('claude plugin commands use execFileSync without a shell', () => {
+    expect(cliSource).toContain('execFileSync(claudeBin,');
+    expect(cliSource).toContain("resolveExecutableForPlatform('claude')");
+    expect(cliSource).not.toMatch(/execSync\(`claude plugin/);
+    expect(cliSource).not.toMatch(/execSync\('claude plugin/);
+  });
 });
 
