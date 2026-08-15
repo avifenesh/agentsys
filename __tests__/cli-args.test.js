@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 
 // Import parseArgs directly from cli.js (now exported for testing)
-const { parseArgs, VALID_TOOLS } = require('../bin/cli.js');
+const { parseArgs, VALID_TOOLS, claudeExecutable } = require('../bin/cli.js');
 
 describe('CLI argument parsing', () => {
   // Save original process.exit and restore after each test
@@ -194,6 +194,17 @@ describe('VALID_TOOLS constant', () => {
   });
 });
 
+describe('claudeExecutable', () => {
+  test('uses claude.cmd on win32 because execFileSync skips PATHEXT', () => {
+    expect(claudeExecutable('win32')).toBe('claude.cmd');
+  });
+
+  test('uses extensionless claude on posix', () => {
+    expect(claudeExecutable('linux')).toBe('claude');
+    expect(claudeExecutable('darwin')).toBe('claude');
+  });
+});
+
 describe('CLI integration', () => {
   const cliPath = path.join(__dirname, '..', 'bin', 'cli.js');
   const cliSource = fs.readFileSync(cliPath, 'utf8');
@@ -234,6 +245,14 @@ describe('CLI integration', () => {
 
   test('cli.js has installForKiro function', () => {
     expect(cliSource.includes('function installForKiro(')).toBe(true);
+  });
+
+  test('claude plugin commands use execFileSync without a shell', () => {
+    expect(cliSource).toContain('function runClaudePlugin');
+    expect(cliSource).toContain('execFileSync(claudeExecutable()');
+    expect(cliSource).not.toMatch(/execSync\(`claude plugin/);
+    expect(cliSource).not.toMatch(/execSync\('claude plugin/);
+    expect(cliSource).toContain("platform === 'win32' ? 'claude.cmd' : 'claude'");
   });
 });
 
