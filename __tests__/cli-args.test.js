@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 
 // Import parseArgs directly from cli.js (now exported for testing)
-const { parseArgs, VALID_TOOLS } = require('../bin/cli.js');
+const { parseArgs, VALID_TOOLS, pickClaudeExecutable, claudeSpawnPlan, claudeExecutable } = require('../bin/cli.js');
 
 describe('CLI argument parsing', () => {
   // Save original process.exit and restore after each test
@@ -188,6 +188,94 @@ describe('CLI argument parsing', () => {
   });
 });
 
+describe('pickClaudeExecutable', () => {
+  test('uses plain claude on posix and ignores any where output', () => {
+    expect(pickClaudeExecutable('linux', '')).toBe('claude');
+    expect(pickClaudeExecutable('darwin', 'C:\\npm\\claude.cmd')).toBe('claude');
+  });
+
+  test('uses the npm global shim path that where.exe resolved', () => {
+    const shim = 'C:\\Users\\u\\AppData\\Roaming\\npm\\claude.cmd';
+    expect(pickClaudeExecutable('win32', `${shim}\r\n`)).toBe(shim);
+  });
+
+  test('uses claude.exe from the native installer instead of assuming .cmd', () => {
+    const native = 'C:\\Users\\u\\.local\\bin\\claude.exe';
+    expect(pickClaudeExecutable('win32', `${native}\r\n`)).toBe(native);
+  });
+
+  test('prefers claude.exe over a batch shim in either PATH order', () => {
+    const exe = 'C:\\Users\\u\\.local\\bin\\claude.exe';
+    const cmd = 'C:\\npm\\claude.cmd';
+    expect(pickClaudeExecutable('win32', `${exe}\r\n${cmd}\r\n`)).toBe(exe);
+    expect(pickClaudeExecutable('win32', `${cmd}\r\n${exe}\r\n`)).toBe(exe);
+  });
+
+  test('skips entries CreateProcess cannot launch', () => {
+    // npm ships an extensionless shell script and a .ps1 alongside the .cmd
+    const out = 'C:\\npm\\claude\r\nC:\\npm\\claude.ps1\r\nC:\\npm\\claude.cmd\r\n';
+    expect(pickClaudeExecutable('win32', out)).toBe('C:\\npm\\claude.cmd');
+  });
+
+  test('falls back to the cmd shim when nothing spawnable was resolved', () => {
+    expect(pickClaudeExecutable('win32', '')).toBe('claude.cmd');
+    expect(pickClaudeExecutable('win32', '  \r\n \r\n')).toBe('claude.cmd');
+    expect(pickClaudeExecutable('win32', undefined)).toBe('claude.cmd');
+    expect(pickClaudeExecutable('win32', 'C:\\npm\\claude.ps1\r\n')).toBe('claude.cmd');
+  });
+});
+
+describe('claudeSpawnPlan', () => {
+  const args = ['plugin', 'install', 'agentsys-core@agentsys'];
+
+  test('spawns a posix or native executable directly', () => {
+    expect(claudeSpawnPlan('claude', args)).toEqual({ file: 'claude', args });
+    expect(claudeSpawnPlan('C:\\bin\\claude.exe', args)).toEqual({ file: 'C:\\bin\\claude.exe', args });
+  });
+
+  test('routes a batch shim through cmd.exe, which execFileSync cannot spawn', () => {
+    // Node's src disallows direct .bat/.cmd spawning since the CVE-2024-27980
+    // fix, so a shim handed to execFileSync fails with EINVAL.
+    const shim = 'C:\\npm\\claude.cmd';
+    expect(claudeSpawnPlan(shim, args)).toEqual({
+      file: 'cmd.exe',
+      args: ['/d', '/s', '/c', '""C:\\npm\\claude.cmd" plugin install agentsys-core@agentsys"'],
+      verbatim: true
+    });
+    expect(claudeSpawnPlan('C:\\npm\\claude.bat', args).file).toBe('cmd.exe');
+  });
+
+  test('honours COMSPEC when routing through a shell', () => {
+    expect(claudeSpawnPlan('claude.cmd', args, 'C:\\Windows\\system32\\cmd.exe').file)
+      .toBe('C:\\Windows\\system32\\cmd.exe');
+  });
+
+  test('refuses arguments cmd.exe would reparse', () => {
+    // cmd.exe re-splits its command line, so an unquoted metacharacter would be
+    // a command injection - the exact hazard behind CVE-2024-27980.
+    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'x&calc'])).toThrow(/Refusing to pass/);
+    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a|b'])).toThrow(/Refusing to pass/);
+    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a b'])).toThrow(/Refusing to pass/);
+    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a"b'])).toThrow(/Refusing to pass/);
+  });
+
+  test('passes the same arguments through unchecked when no shell is involved', () => {
+    // Nothing reparses an execFileSync argv, so it needs no metacharacter guard.
+    expect(claudeSpawnPlan('claude', ['plugin', 'install', 'x&calc']).args)
+      .toEqual(['plugin', 'install', 'x&calc']);
+  });
+
+  test('claudeExecutable resolves and caches without a shell on this platform', () => {
+    const first = claudeExecutable();
+    expect(typeof first).toBe('string');
+    expect(first.length).toBeGreaterThan(0);
+    expect(claudeExecutable()).toBe(first);
+    if (process.platform !== 'win32') {
+      expect(first).toBe('claude');
+    }
+  });
+});
+
 describe('VALID_TOOLS constant', () => {
   test('contains expected tools', () => {
     expect(VALID_TOOLS).toEqual(['claude', 'opencode', 'codex', 'cursor', 'kiro']);
@@ -236,11 +324,34 @@ describe('CLI integration', () => {
     expect(cliSource.includes('function installForKiro(')).toBe(true);
   });
 
-  test('claude plugin commands use execFileSync without a shell', () => {
-    expect(cliSource).toContain('execFileSync(claudeBin,');
-    expect(cliSource).toContain("resolveExecutableForPlatform('claude')");
+  test('claude plugin commands go through claudeSpawn, never a shell string', () => {
+    expect(cliSource).toMatch(/claudeSpawn\(\['plugin', 'install'/);
     expect(cliSource).not.toMatch(/execSync\(`claude plugin/);
     expect(cliSource).not.toMatch(/execSync\('claude plugin/);
+    expect(cliSource).not.toMatch(/shell: true/);
+  });
+
+  test('every claude invocation is planned, so no call site can bypass the cmd.exe hop', () => {
+    const planned = cliSource.match(/claudeSpawn\(\[/g) || [];
+    expect(planned.length).toBeGreaterThanOrEqual(10);
+    expect(cliSource).not.toMatch(/execFileSync\(claudeExecutable\(\)/);
+  });
+
+  test('every skipped claude install is recorded as a failure', () => {
+    // detectInstalledPlatforms reports 'claude' from ~/.claude alone, so the CLI
+    // can be missing; and a dep whose id would be rejected is skipped. Both must
+    // reach claudeFailures or installed.json records an install that never ran.
+    expect(cliSource).toMatch(/if \(!commandExists\('claude'\)\)[\s\S]{0,300}claudeFailures\.set/);
+    expect(cliSource).toMatch(/test\(depName\)\) \{[\s\S]{0,160}claudeFailures\.set/);
+  });
+
+  test('a plugin Claude Code did not register fails the process', () => {
+    // `agentsys install x && next-step` must not proceed on a partial install.
+    expect(cliSource).toMatch(/Claude Code did not register[\s\S]{0,400}process\.exitCode = 1/);
+  });
+
+  test('claude executable is never hardcoded to a single windows suffix', () => {
+    expect(cliSource).not.toMatch(/claudeBin = resolveExecutableForPlatform\('claude'\)/);
   });
 });
 

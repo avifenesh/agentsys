@@ -22,8 +22,6 @@ const discovery = require('../lib/discovery');
 const transforms = require('../lib/adapter-transforms');
 const { resolveExecutableForPlatform } = require('../lib/utils/command-parser');
 
-const claudeBin = resolveExecutableForPlatform('claude');
-
 // Valid tool names
 const VALID_TOOLS = ['claude', 'opencode', 'codex', 'cursor', 'kiro'];
 
@@ -64,6 +62,89 @@ function commandExists(cmd) {
   } catch {
     return false;
   }
+}
+
+// Extensions CreateProcess can launch directly. A .ps1 and an extensionless npm
+// shell script also show up in `where.exe` output but can never be spawned.
+const WINDOWS_DIRECT_EXEC = /\.(exe|com)$/i;
+// Batch shims need a cmd.exe hop: since the CVE-2024-27980 fix (Node 18.20.2 /
+// 20.12.2 / 21.7.3) src disallows direct .bat and .cmd spawning, so handing one
+// to execFileSync fails with EINVAL rather than running it.
+const WINDOWS_BATCH_SHIM = /\.(cmd|bat)$/i;
+// Arguments safe to hand to cmd.exe: no whitespace, no shell metacharacters.
+const CMD_SAFE_ARG = /^[A-Za-z0-9@._:\\/+-]+$/;
+
+/**
+ * Pick the Claude Code executable from a `where.exe claude` result.
+ *
+ * execFileSync does not apply PATHEXT, so an extensionless 'claude' cannot be
+ * spawned on Windows - but the suffix is not knowable either: the npm global
+ * install provides claude.cmd while the native installer provides claude.exe.
+ * Rank the directly launchable .exe/.com ahead of a batch shim regardless of
+ * PATH order, since the shim costs an extra cmd.exe hop, and fall back to the
+ * shim mapping. Kept pure so the win32 branch is testable off Windows.
+ */
+function pickClaudeExecutable(platform, whereOutput) {
+  if (platform !== 'win32') {
+    return 'claude';
+  }
+  const candidates = String(whereOutput || '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+  return candidates.find(candidate => WINDOWS_DIRECT_EXEC.test(candidate))
+    || candidates.find(candidate => WINDOWS_BATCH_SHIM.test(candidate))
+    || resolveExecutableForPlatform('claude', platform);
+}
+
+/**
+ * Build the file and argv for one Claude Code invocation.
+ *
+ * A batch shim cannot be handed to execFileSync at all, so it is launched
+ * through cmd.exe. cmd.exe re-parses its command line, so every argument is
+ * checked first: callers only ever pass literal subcommands and validated
+ * `<plugin>@<marketplace>` ids, so anything else is a bug rather than a string
+ * to escape. The quoting mirrors how Node wraps a shell command - /s strips the
+ * outer quote pair, leaving the quoted shim path as the first token.
+ */
+function claudeSpawnPlan(executable, args, comspec) {
+  if (!WINDOWS_BATCH_SHIM.test(executable)) {
+    return { file: executable, args };
+  }
+  const unsafe = args.find(arg => !CMD_SAFE_ARG.test(arg));
+  if (unsafe !== undefined) {
+    throw new Error(`Refusing to pass ${JSON.stringify(unsafe)} to cmd.exe`);
+  }
+  const command = [`"${executable}"`, ...args].join(' ');
+  return { file: comspec || 'cmd.exe', args: ['/d', '/s', '/c', `"${command}"`], verbatim: true };
+}
+
+let claudeBinCache;
+
+/**
+ * Resolve the Claude Code executable once per process.
+ */
+function claudeExecutable() {
+  if (claudeBinCache === undefined) {
+    let whereOutput = '';
+    if (process.platform === 'win32') {
+      try {
+        whereOutput = execFileSync('where.exe', ['claude'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      } catch {
+        // Fall back to the shim mapping below.
+      }
+    }
+    claudeBinCache = pickClaudeExecutable(process.platform, whereOutput);
+  }
+  return claudeBinCache;
+}
+
+/**
+ * Run one Claude Code plugin command. Throws like execFileSync.
+ */
+function claudeSpawn(args, options) {
+  const plan = claudeSpawnPlan(claudeExecutable(), args, process.env.comspec);
+  return execFileSync(plan.file, plan.args, plan.verbatim ? { ...options, windowsVerbatimArguments: true } : options);
 }
 
 function copyDirRecursive(src, dest) {
@@ -772,6 +853,29 @@ function saveInstalledJson(data) {
   fs.writeFileSync(p, JSON.stringify(data, null, 2) + '\n');
 }
 
+/**
+ * Drop platforms a plugin never actually reached from what gets recorded.
+ *
+ * installed.json is load-bearing: `list` prints these platforms back, and
+ * removePlugin uses them to decide whether to run `claude plugin uninstall`.
+ * Recording 'claude' for a plugin Claude Code never registered would make both
+ * report an install that did not happen.
+ *
+ * recordInstall replaces the entry wholesale, so a platform already recorded is
+ * kept: a failed re-install is not evidence that the earlier install never
+ * landed, and dropping it would leave a plugin loaded in Claude Code that
+ * removePlugin then refuses to uninstall.
+ */
+function recordedPlatforms(platforms, claudeFailures, depName, recordedBefore) {
+  if (!claudeFailures || !claudeFailures.has(depName)) {
+    return platforms;
+  }
+  if (Array.isArray(recordedBefore) && recordedBefore.includes('claude')) {
+    return platforms;
+  }
+  return platforms.filter(platform => platform !== 'claude');
+}
+
 function recordInstall(name, version, platforms, granular) {
   const data = loadInstalledJson();
   const entry = {
@@ -1065,20 +1169,39 @@ async function installPlugin(nameWithVersion, args) {
     copyFromPackage(installDir);
   }
 
+  // depName -> errno, or null when Claude Code itself rejected the plugin
+  const claudeFailures = new Map();
+
   for (const platform of platforms) {
     if (platform === 'claude') {
       if (filter) {
         console.log('  [NOTE] Claude Code installs whole plugins (granular not supported). Installing full plugin.');
       }
       // Claude uses marketplace install
-      if (commandExists('claude')) {
-        try { execFileSync(claudeBin, ['plugin', 'marketplace', 'add', 'agent-sh/agentsys'], { stdio: 'pipe' }); } catch {}
+      if (!commandExists('claude')) {
+        // detectInstalledPlatforms reports 'claude' whenever ~/.claude exists,
+        // so the CLI can still be missing - nothing was registered.
         for (const depName of toFetch) {
-          if (!/^[a-z0-9][a-z0-9-]*$/.test(depName)) continue;
+          claudeFailures.set(depName, 'claude not on PATH');
+        }
+      } else {
+        try { claudeSpawn(['plugin', 'marketplace', 'add', 'agent-sh/agentsys'], { stdio: 'pipe' }); } catch {}
+        for (const depName of toFetch) {
+          if (!/^[a-z0-9][a-z0-9-]*$/.test(depName)) {
+            claudeFailures.set(depName, 'unsupported plugin id');
+            continue;
+          }
           try {
-            execFileSync(claudeBin, ['plugin', 'install', `${depName}@agentsys`], { stdio: 'pipe' });
+            claudeSpawn(['plugin', 'install', `${depName}@agentsys`], { stdio: 'pipe' });
           } catch {
-            try { execFileSync(claudeBin, ['plugin', 'update', `${depName}@agentsys`], { stdio: 'pipe' }); } catch {}
+            try {
+              claudeSpawn(['plugin', 'update', `${depName}@agentsys`], { stdio: 'pipe' });
+            } catch (err) {
+              // Do not report success for a plugin Claude Code never received.
+              // Keep the errno: a rejected plugin and a shim we could not spawn
+              // at all need different fixes.
+              claudeFailures.set(depName, (err && err.code) || null);
+            }
           }
         }
       }
@@ -1100,22 +1223,33 @@ async function installPlugin(nameWithVersion, args) {
   }
 
   // Record in installed.json
+  const recordedBefore = loadInstalledJson().plugins;
   for (const depName of toFetch) {
     const dep = pluginMap[depName];
     const ver = depName === name && requestedVersion ? requestedVersion : (dep ? dep.version : 'unknown');
+    const previous = recordedBefore[depName] && recordedBefore[depName].platforms;
+    const recorded = recordedPlatforms(platforms, claudeFailures, depName, previous);
     if (depName === name && filter) {
-      recordInstall(depName, ver, platforms, {
+      recordInstall(depName, ver, recorded, {
         scope: 'partial',
         agents: filter.agents,
         skills: filter.skills,
         commands: filter.commands
       });
     } else {
-      recordInstall(depName, ver, platforms);
+      recordInstall(depName, ver, recorded);
     }
   }
 
-  console.log(`\n[OK] Installed ${name} successfully.`);
+  if (claudeFailures.size > 0) {
+    const failures = [...claudeFailures].map(([depName, code]) => (code ? `${depName} (${code})` : depName));
+    console.log(`\n[WARN] Installed ${name}, but Claude Code did not register: ${failures.join(', ')}`);
+    console.log(`       Retry with: claude plugin install <name>@agentsys`);
+    // Match the --tool path, so `agentsys install x && next-step` stops here.
+    process.exitCode = 1;
+  } else {
+    console.log(`\n[OK] Installed ${name} successfully.`);
+  }
 }
 
 // --- remove subcommand ---
@@ -1141,7 +1275,7 @@ function removePlugin(name) {
   // Remove from platforms
   if (platforms.includes('claude') && commandExists('claude')) {
     try {
-      execFileSync(claudeBin, ['plugin', 'uninstall', `${name}@agentsys`], { stdio: 'pipe' });
+      claudeSpawn(['plugin', 'uninstall', `${name}@agentsys`], { stdio: 'pipe' });
       console.log(`  Removed from Claude Code: ${name}`);
     } catch {}
   }
@@ -1247,7 +1381,7 @@ function installForClaude() {
     // Add GitHub marketplace
     console.log('Adding marketplace...');
     try {
-      execFileSync(claudeBin, ['plugin', 'marketplace', 'add', 'agent-sh/agentsys'], { stdio: 'pipe' });
+      claudeSpawn(['plugin', 'marketplace', 'add', 'agent-sh/agentsys'], { stdio: 'pipe' });
     } catch {
       // May already exist
     }
@@ -1261,17 +1395,17 @@ function installForClaude() {
       console.log(`  Installing ${plugin}...`);
       // Remove pre-rename plugin ID to prevent dual loading on upgrade
       try {
-        execFileSync(claudeBin, ['plugin', 'uninstall', `${plugin}@awesome-slash`], { stdio: 'pipe' });
+        claudeSpawn(['plugin', 'uninstall', `${plugin}@awesome-slash`], { stdio: 'pipe' });
       } catch {
         // Not installed under old name
       }
       try {
         // Try install first
-        execFileSync(claudeBin, ['plugin', 'install', `${plugin}@agentsys`], { stdio: 'pipe' });
+        claudeSpawn(['plugin', 'install', `${plugin}@agentsys`], { stdio: 'pipe' });
       } catch {
         // If install fails (already installed), try update
         try {
-          execFileSync(claudeBin, ['plugin', 'update', `${plugin}@agentsys`], { stdio: 'pipe' });
+          claudeSpawn(['plugin', 'update', `${plugin}@agentsys`], { stdio: 'pipe' });
         } catch {
           failedPlugins.push(plugin);
         }
@@ -1310,7 +1444,7 @@ function installForClaudeDevelopment() {
   // Remove marketplace plugins first
   console.log('Removing marketplace plugins...');
   try {
-    execFileSync(claudeBin, ['plugin', 'marketplace', 'remove', 'agent-sh/agentsys'], { stdio: 'pipe' });
+    claudeSpawn(['plugin', 'marketplace', 'remove', 'agent-sh/agentsys'], { stdio: 'pipe' });
     console.log('  [OK] Removed marketplace');
   } catch {
     // May not exist
@@ -1322,7 +1456,7 @@ function installForClaudeDevelopment() {
     // Uninstall both current and pre-rename plugin IDs
     for (const suffix of ['agentsys', 'awesome-slash']) {
       try {
-        execFileSync(claudeBin, ['plugin', 'uninstall', `${plugin}@${suffix}`], { stdio: 'pipe' });
+        claudeSpawn(['plugin', 'uninstall', `${plugin}@${suffix}`], { stdio: 'pipe' });
         console.log(`  [OK] Uninstalled ${plugin}@${suffix}`);
       } catch {
         // May not be installed
@@ -2279,6 +2413,7 @@ module.exports = {
   loadInstalledJson,
   saveInstalledJson,
   recordInstall,
+  recordedPlatforms,
   recordRemove,
   satisfiesRange,
   checkCoreCompat,
@@ -2291,5 +2426,8 @@ module.exports = {
   resolvePluginSource,
   parseGitHubSource,
   installForCursor,
-  installForKiro
+  installForKiro,
+  pickClaudeExecutable,
+  claudeSpawnPlan,
+  claudeExecutable
 };

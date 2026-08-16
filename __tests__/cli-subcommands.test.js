@@ -14,6 +14,7 @@ const {
   loadInstalledJson,
   saveInstalledJson,
   recordInstall,
+  recordedPlatforms,
   recordRemove,
   getInstalledJsonPath,
   detectInstalledPlatforms,
@@ -209,6 +210,49 @@ describe('installed.json operations', () => {
     recordInstall('perf', '1.0.0', ['opencode']);
     const data = loadInstalledJson();
     expect(Object.keys(data.plugins)).toEqual(['deslop', 'perf']);
+  });
+
+  test('a plugin Claude Code never registered is not recorded against claude', () => {
+    // removePlugin reads these platforms back to decide whether to run
+    // `claude plugin uninstall`, and `list` prints them, so recording a
+    // failed Claude install would make both report something that never landed.
+    const failures = new Map([['deslop', 'EINVAL']]);
+    recordInstall('deslop', '1.0.0', recordedPlatforms(['claude', 'opencode'], failures, 'deslop'));
+    recordInstall('perf', '1.0.0', recordedPlatforms(['claude', 'opencode'], failures, 'perf'));
+    const data = loadInstalledJson();
+    expect(data.plugins.deslop.platforms).toEqual(['opencode']);
+    expect(data.plugins.perf.platforms).toEqual(['claude', 'opencode']);
+  });
+
+  test('claude-only install that failed records no platforms at all', () => {
+    const failures = new Map([['deslop', null]]);
+    recordInstall('deslop', '1.0.0', recordedPlatforms(['claude'], failures, 'deslop'));
+    expect(loadInstalledJson().plugins.deslop.platforms).toEqual([]);
+  });
+
+  test('recordedPlatforms passes the list through when nothing failed', () => {
+    const platforms = ['claude', 'codex'];
+    expect(recordedPlatforms(platforms, new Map(), 'deslop')).toBe(platforms);
+    expect(recordedPlatforms(platforms, null, 'deslop')).toBe(platforms);
+  });
+
+  test('a failed re-install does not erase a Claude registration that already exists', () => {
+    // recordInstall replaces the entry wholesale, so dropping 'claude' after a
+    // failed re-install would leave the plugin loaded in Claude Code while
+    // removePlugin refuses to uninstall it.
+    recordInstall('deslop', '1.0.0', ['claude', 'opencode']);
+    const before = loadInstalledJson().plugins.deslop.platforms;
+    const failures = new Map([['deslop', 'ETIMEDOUT']]);
+    recordInstall('deslop', '1.1.0', recordedPlatforms(['claude', 'opencode'], failures, 'deslop', before));
+    const entry = loadInstalledJson().plugins.deslop;
+    expect(entry.platforms).toEqual(['claude', 'opencode']);
+    expect(entry.version).toBe('1.1.0');
+  });
+
+  test('a first install that failed still drops claude', () => {
+    const failures = new Map([['deslop', 'EINVAL']]);
+    expect(recordedPlatforms(['claude', 'opencode'], failures, 'deslop', undefined)).toEqual(['opencode']);
+    expect(recordedPlatforms(['claude', 'opencode'], failures, 'deslop', ['opencode'])).toEqual(['opencode']);
   });
 });
 
