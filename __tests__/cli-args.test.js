@@ -229,8 +229,8 @@ describe('claudeSpawnPlan', () => {
   const args = ['plugin', 'install', 'agentsys-core@agentsys'];
 
   test('spawns a posix or native executable directly', () => {
-    expect(claudeSpawnPlan('claude', args)).toEqual({ file: 'claude', args });
-    expect(claudeSpawnPlan('C:\\bin\\claude.exe', args)).toEqual({ file: 'C:\\bin\\claude.exe', args });
+    expect(claudeSpawnPlan('claude', args)).toEqual({ file: 'claude', args, verbatim: false });
+    expect(claudeSpawnPlan('C:\\bin\\claude.exe', args)).toEqual({ file: 'C:\\bin\\claude.exe', args, verbatim: false });
   });
 
   test('routes a batch shim through cmd.exe, which execFileSync cannot spawn', () => {
@@ -239,7 +239,7 @@ describe('claudeSpawnPlan', () => {
     const shim = 'C:\\npm\\claude.cmd';
     expect(claudeSpawnPlan(shim, args)).toEqual({
       file: 'cmd.exe',
-      args: ['/d', '/s', '/c', '""C:\\npm\\claude.cmd" plugin install agentsys-core@agentsys"'],
+      args: ['/d', '/s', '/c', '""C:\\npm\\claude.cmd" "plugin" "install" "agentsys-core@agentsys""'],
       verbatim: true
     });
     expect(claudeSpawnPlan('C:\\npm\\claude.bat', args).file).toBe('cmd.exe');

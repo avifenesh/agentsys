@@ -20,7 +20,7 @@ const VERSION = require('../package.json').version;
 const PACKAGE_DIR = path.join(__dirname, '..');
 const discovery = require('../lib/discovery');
 const transforms = require('../lib/adapter-transforms');
-const { resolveExecutableForPlatform } = require('../lib/utils/command-parser');
+const { resolveExecutableForPlatform, planShimSpawn, shimSpawnOptions } = require('../lib/utils/command-parser');
 
 // Valid tool names
 const VALID_TOOLS = ['claude', 'opencode', 'codex', 'cursor', 'kiro'];
@@ -100,23 +100,20 @@ function pickClaudeExecutable(platform, whereOutput) {
 /**
  * Build the file and argv for one Claude Code invocation.
  *
- * A batch shim cannot be handed to execFileSync at all, so it is launched
- * through cmd.exe. cmd.exe re-parses its command line, so every argument is
- * checked first: callers only ever pass literal subcommands and validated
- * `<plugin>@<marketplace>` ids, so anything else is a bug rather than a string
- * to escape. The quoting mirrors how Node wraps a shell command - /s strips the
- * outer quote pair, leaving the quoted shim path as the first token.
+ * planShimSpawn does the cmd.exe routing a batch shim needs. Every argument is
+ * checked against a stricter rule than that quoting requires: callers only ever
+ * pass literal subcommands and validated `<plugin>@<marketplace>` ids, so
+ * anything carrying whitespace or a shell metacharacter is a bug rather than a
+ * string to escape.
  */
 function claudeSpawnPlan(executable, args, comspec) {
-  if (!WINDOWS_BATCH_SHIM.test(executable)) {
-    return { file: executable, args };
+  if (WINDOWS_BATCH_SHIM.test(executable)) {
+    const unsafe = args.find(arg => !CMD_SAFE_ARG.test(arg));
+    if (unsafe !== undefined) {
+      throw new Error(`Refusing to pass ${JSON.stringify(unsafe)} to cmd.exe`);
+    }
   }
-  const unsafe = args.find(arg => !CMD_SAFE_ARG.test(arg));
-  if (unsafe !== undefined) {
-    throw new Error(`Refusing to pass ${JSON.stringify(unsafe)} to cmd.exe`);
-  }
-  const command = [`"${executable}"`, ...args].join(' ');
-  return { file: comspec || 'cmd.exe', args: ['/d', '/s', '/c', `"${command}"`], verbatim: true };
+  return planShimSpawn(executable, args, { comspec });
 }
 
 let claudeBinCache;
@@ -144,7 +141,7 @@ function claudeExecutable() {
  */
 function claudeSpawn(args, options) {
   const plan = claudeSpawnPlan(claudeExecutable(), args, process.env.comspec);
-  return execFileSync(plan.file, plan.args, plan.verbatim ? { ...options, windowsVerbatimArguments: true } : options);
+  return execFileSync(plan.file, plan.args, shimSpawnOptions(plan, options));
 }
 
 function copyDirRecursive(src, dest) {

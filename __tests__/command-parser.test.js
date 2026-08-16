@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { parseCommand, resolveExecutableForPlatform } = require('../lib/utils/command-parser');
+const { parseCommand, resolveExecutableForPlatform, planShimSpawn, shimSpawnOptions } = require('../lib/utils/command-parser');
 
 describe('command parser', () => {
   test('parses simple command into executable and args', () => {
@@ -67,6 +67,71 @@ describe('resolveExecutableForPlatform', () => {
 
   test('uses cmd shim for claude on windows', () => {
     expect(resolveExecutableForPlatform('claude', 'win32')).toBe('claude.cmd');
+  });
+});
+
+describe('planShimSpawn', () => {
+  test('leaves a directly spawnable executable alone', () => {
+    const args = ['run', 'bench'];
+    expect(planShimSpawn('npm', args)).toEqual({ file: 'npm', args, verbatim: false });
+    expect(planShimSpawn('node.exe', args)).toEqual({ file: 'node.exe', args, verbatim: false });
+    expect(planShimSpawn('/usr/bin/node', args)).toEqual({ file: '/usr/bin/node', args, verbatim: false });
+  });
+
+  test('routes a batch shim through cmd.exe, which spawn cannot launch', () => {
+    // Node's src disallows direct .bat/.cmd spawning since the CVE-2024-27980
+    // fix, so spawnSync/execFileSync fail with EINVAL on a shim.
+    expect(planShimSpawn('npm.cmd', ['run', 'bench'])).toEqual({
+      file: 'cmd.exe',
+      args: ['/d', '/s', '/c', '""npm.cmd" "run" "bench""'],
+      verbatim: true
+    });
+    expect(planShimSpawn('yarn.bat', []).args).toEqual(['/d', '/s', '/c', '""yarn.bat""']);
+  });
+
+  test('quotes arguments so cmd.exe cannot reinterpret them', () => {
+    // Inside double quotes cmd.exe leaves these alone, so a benchmark command
+    // carrying them runs instead of being split into extra commands.
+    const [, , , payload] = planShimSpawn('npm.cmd', ['run', 'a && calc', 'x|y', 'a>b']).args;
+    expect(payload).toBe('""npm.cmd" "run" "a && calc" "x|y" "a>b""');
+  });
+
+  test('preserves an empty argument', () => {
+    const [, , , payload] = planShimSpawn('npm.cmd', ['run', '']).args;
+    expect(payload).toBe('""npm.cmd" "run" """');
+  });
+
+  test('doubles trailing backslashes so the closing quote survives', () => {
+    // "C:\dir\" would read as an escaped quote when the child parses argv back.
+    const [, , , payload] = planShimSpawn('npm.cmd', ['--cwd', 'C:\\dir\\']).args;
+    expect(payload).toBe('""npm.cmd" "--cwd" "C:\\dir\\\\""');
+  });
+
+  test('refuses arguments cmd.exe cannot carry faithfully', () => {
+    // % is expanded even inside quotes, and a literal " ends the quoting.
+    expect(() => planShimSpawn('npm.cmd', ['run', '%PATH%'])).toThrow(/not representable/);
+    expect(() => planShimSpawn('npm.cmd', ['run', 'say "hi"'])).toThrow(/not representable/);
+    expect(() => planShimSpawn('npm.cmd', ['run', 'a\0b'])).toThrow(/null byte/);
+    expect(() => planShimSpawn('npm.cmd', ['run', 42])).toThrow(/must be a string/);
+  });
+
+  test('leaves those arguments alone when no shell is involved', () => {
+    // Nothing reparses an execFileSync argv, so the restriction is shim-only.
+    expect(planShimSpawn('npm', ['run', '%PATH%', 'say "hi"']).args)
+      .toEqual(['run', '%PATH%', 'say "hi"']);
+  });
+
+  test('honours an explicit comspec', () => {
+    expect(planShimSpawn('npm.cmd', [], { comspec: 'C:\\Windows\\system32\\cmd.exe' }).file)
+      .toBe('C:\\Windows\\system32\\cmd.exe');
+  });
+
+  test('shimSpawnOptions adds windowsVerbatimArguments only for a shim', () => {
+    const plan = planShimSpawn('npm.cmd', ['run']);
+    expect(shimSpawnOptions(plan, { cwd: '/tmp' }))
+      .toEqual({ cwd: '/tmp', windowsVerbatimArguments: true });
+    expect(shimSpawnOptions(planShimSpawn('npm', ['run']), { cwd: '/tmp' }))
+      .toEqual({ cwd: '/tmp' });
   });
 });
 

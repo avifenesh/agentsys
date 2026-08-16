@@ -109,6 +109,19 @@ describe('runBenchmark', () => {
     }));
   });
 
+  it('runs a batch shim through cmd.exe instead of spawning it directly', () => {
+    // Node fails with EINVAL on a direct .cmd spawn since the CVE-2024-27980
+    // fix, so an npm-based benchmark command needs the cmd.exe hop.
+    execFileSync.mockImplementation(() => 'output');
+
+    runBenchmark('npm.cmd run bench', { allowShort: true });
+    expect(execFileSync).toHaveBeenCalledWith(
+      'cmd.exe',
+      ['/d', '/s', '/c', '""npm.cmd" "run" "bench""'],
+      expect.objectContaining({ windowsVerbatimArguments: true })
+    );
+  });
+
   it('sets PERF_RUN_DURATION env variable by default', () => {
     execFileSync.mockImplementation(() => 'output');
 
