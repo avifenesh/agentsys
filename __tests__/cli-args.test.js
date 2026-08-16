@@ -265,8 +265,7 @@ describe('claudeSpawnPlan', () => {
     expect(reject('a|b')).toThrow(/Refusing to pass/);
     expect(reject('a b')).toThrow(/Refusing to pass/);
     expect(reject('a"b')).toThrow(/Refusing to pass/);
-    // JavaScript's $ also matches before a trailing newline, so the guard has to
-    // assert end of input or 'id\n' - and 'id\n&calc' - would pass as safe.
+    // CR and LF are refused wherever they appear, trailing included.
     expect(reject('agentsys-core@agentsys\n')).toThrow(/Refusing to pass/);
     expect(reject('a\n&calc')).toThrow(/Refusing to pass/);
   });
