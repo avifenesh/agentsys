@@ -31,8 +31,10 @@ const transforms = require(path.join(SOURCE_DIR, 'lib', 'adapter-transforms'));
 const {
   resolveExecutableForPlatform,
   planShimSpawn,
-  shimSpawnOptions
+  shimSpawnOptions,
+  WINDOWS_BATCH_SHIM
 } = require(path.join(SOURCE_DIR, 'lib', 'utils', 'command-parser'));
+const { claudeExecutable } = require(path.join(SOURCE_DIR, 'lib', 'utils', 'claude-executable'));
 
 // Target directories
 const HOME = process.env.HOME || process.env.USERPROFILE;
@@ -55,6 +57,9 @@ const AGENTSYS_DIR = path.join(HOME, '.agentsys');
 // Discover plugins from filesystem
 const PLUGINS = discovery.discoverPlugins(SOURCE_DIR);
 
+// cmd.exe's exit code for a command it could not find or launch.
+const CMD_NOT_RECOGNIZED = 9009;
+
 function log(msg) {
   console.log(`[dev-install] ${msg}`);
 }
@@ -62,11 +67,12 @@ function log(msg) {
 /**
  * Run one external command with an argv list instead of a shell string.
  *
- * The commands here (`claude`, `npm`) are .cmd shims on Windows, which need two
- * separate fixes: resolveExecutableForPlatform supplies the extension that
- * execFileSync will not look up itself, and planShimSpawn routes the shim
- * through cmd.exe, since Node has refused to spawn .cmd directly since the
- * CVE-2024-27980 fix. Plugin names reach this from discovery on disk, so they
+ * A Windows command needs two separate fixes: resolveExecutableForPlatform
+ * supplies the extension that execFileSync will not look up itself, and
+ * planShimSpawn routes a .cmd or .bat through cmd.exe, since Node has refused to
+ * spawn those directly since the CVE-2024-27980 fix. An executable that already
+ * carries an extension - what claudeExecutable() returns - passes through the
+ * first step untouched. Plugin names reach this from discovery on disk, so they
  * stay argv elements - a shell string would make a directory named `a & b` a
  * second command.
  */
@@ -288,12 +294,39 @@ function installClaude() {
     return false;
   }
 
+  // Ask where.exe which claude this is instead of assuming a suffix: the npm
+  // global install ships claude.cmd and the native installer ships claude.exe.
+  const claudeBin = claudeExecutable();
+
+  // A .cmd claude is launched through cmd.exe rather than directly, so the two
+  // failure shapes below differ by which process is the one that fails.
+  const viaCmdShim = process.platform === 'win32' && WINDOWS_BATCH_SHIM.test(claudeBin);
+
+  // The removals below are best-effort - a marketplace that was never added and
+  // a plugin that was never installed both exit non-zero, and that is fine. A
+  // claude that could not be started at all is not: it would make every removal
+  // a silent no-op, so say so once.
+  let spawnFailureReported = false;
+  const reportIfNeverRan = (err) => {
+    // execFileSync sets a numeric status when the child ran and exited non-zero;
+    // a spawn failure leaves status null and carries the errno code instead. That
+    // alone misses the shim host: there the child is cmd.exe, which starts fine
+    // and reports a shim it could not launch as exit 9009, its code for "not
+    // recognized as an internal or external command".
+    const neverRan = typeof err.status !== 'number'
+      || (viaCmdShim && err.status === CMD_NOT_RECOGNIZED);
+    if (!neverRan || spawnFailureReported) return;
+    spawnFailureReported = true;
+    const reason = err.code || (typeof err.status === 'number' ? `exit ${err.status}` : err.message);
+    log(`  [WARN] Could not run ${claudeBin} (${reason}); leaving any marketplace or installed plugins in place`);
+  };
+
   // Remove marketplace plugins first
   try {
-    runCommand('claude', ['plugin', 'marketplace', 'remove', 'agent-sh/agentsys'], { stdio: 'pipe' });
+    runCommand(claudeBin, ['plugin', 'marketplace', 'remove', 'agent-sh/agentsys'], { stdio: 'pipe' });
     log('  Removed marketplace');
-  } catch {
-    // May not exist
+  } catch (err) {
+    reportIfNeverRan(err);
   }
 
   for (const plugin of PLUGINS) {
@@ -301,9 +334,9 @@ function installClaude() {
     // Uninstall both current and pre-rename plugin IDs
     for (const suffix of ['agentsys', 'awesome-slash']) {
       try {
-        runCommand('claude', ['plugin', 'uninstall', `${plugin}@${suffix}`], { stdio: 'pipe' });
-      } catch {
-        // May not be installed
+        runCommand(claudeBin, ['plugin', 'uninstall', `${plugin}@${suffix}`], { stdio: 'pipe' });
+      } catch (err) {
+        reportIfNeverRan(err);
       }
     }
   }
@@ -656,4 +689,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { main, runCommand, commandExists };
+module.exports = { main, runCommand, commandExists, installClaude };
