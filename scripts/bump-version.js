@@ -17,6 +17,11 @@
 
 const { execFileSync } = require('child_process');
 const path = require('path');
+const {
+  resolveExecutableForPlatform,
+  planShimSpawn,
+  shimSpawnOptions
+} = require('../lib/utils/command-parser');
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$/;
 
 function main(args) {
@@ -58,13 +63,15 @@ Files updated (via npm version + stamp-version.js):
     // npm version updates package.json + package-lock.json, then triggers
     // the "version" lifecycle script which runs stamp-version.js.
     // Version is validated by VERSION_PATTERN above (safe for shell use).
-    // On Windows, execFileSync does not resolve npm.cmd via PATHEXT.
-    // Prefer the explicit .cmd suffix when running on win32.
-    const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    execFileSync(npmCommand, ['version', newVersion, '--no-git-tag-version'], {
+    // On Windows, execFileSync does not resolve npm via PATHEXT - and the
+    // npm.cmd shim it needs cannot be spawned directly either, so route it
+    // through the same planner the CLI and the perf runners use.
+    const npmCommand = resolveExecutableForPlatform('npm');
+    const plan = planShimSpawn(npmCommand, ['version', newVersion, '--no-git-tag-version']);
+    execFileSync(plan.file, plan.args, shimSpawnOptions(plan, {
       cwd: path.join(__dirname, '..'),
       stdio: 'inherit'
-    });
+    }));
   } catch (err) {
     console.error(`[ERROR] npm version failed: ${err.message}`);
     return 1;

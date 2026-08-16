@@ -19,6 +19,41 @@ describe('perf profiling runner', () => {
   });
 });
 
+it('runs a batch shim profiler command through cmd.exe', () => {
+  // A direct .cmd spawn fails with EINVAL since the CVE-2024-27980 fix.
+  jest.resetModules();
+  const execFileSync = jest.fn();
+  jest.doMock('child_process', () => ({ execFileSync }));
+  jest.doMock('../lib/perf/profilers', () => ({
+    selectProfiler: () => ({
+      id: 'fake',
+      buildCommand: () => 'npx.cmd clinic doctor',
+      parseOutput: () => ({ tool: 'fake', hotspots: [], artifacts: [] })
+    })
+  }));
+
+  const runner = require('../lib/perf/profiling-runner');
+  // The cmd.exe hop is win32-only, so fake the platform instead of skipping.
+  const platform = process.platform;
+  Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+
+  try {
+    expect(runner.runProfiling().ok).toBe(true);
+  } finally {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+  }
+
+  expect(execFileSync).toHaveBeenCalledWith(
+    'cmd.exe',
+    ['/d', '/s', '/c', '""npx.cmd" "clinic" "doctor""'],
+    expect.objectContaining({ windowsVerbatimArguments: true })
+  );
+
+  jest.dontMock('child_process');
+  jest.dontMock('../lib/perf/profilers');
+  jest.resetModules();
+});
+
 it('does not enforce timeout when timeoutMs is not provided', () => {
   jest.resetModules();
   const execFileSync = jest.fn();

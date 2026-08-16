@@ -81,6 +81,44 @@ describe('bump-version', () => {
       expect(consoleErrorSpy).not.toHaveBeenCalled();
     });
 
+    test('spawns npm directly off Windows', () => {
+      const { execFileSync } = require('child_process');
+      const platform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+
+      try {
+        expect(main(['3.7.3'])).toBe(0);
+      } finally {
+        Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+      }
+
+      expect(execFileSync).toHaveBeenCalledWith(
+        'npm',
+        ['version', '3.7.3', '--no-git-tag-version'],
+        expect.not.objectContaining({ windowsVerbatimArguments: true })
+      );
+    });
+
+    test('routes the npm.cmd shim through cmd.exe on Windows', () => {
+      // A direct .cmd spawn fails with EINVAL since the CVE-2024-27980 fix, so
+      // `agentsys-dev bump` needs the same hop as the rest of the CLI.
+      const { execFileSync } = require('child_process');
+      const platform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+
+      try {
+        expect(main(['3.7.3'])).toBe(0);
+      } finally {
+        Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+      }
+
+      expect(execFileSync).toHaveBeenCalledWith(
+        'cmd.exe',
+        ['/d', '/s', '/c', '""npm.cmd" "version" "3.7.3" "--no-git-tag-version""'],
+        expect.objectContaining({ windowsVerbatimArguments: true })
+      );
+    });
+
     test('rejects invalid version format - missing patch', () => {
       const code = main(['3.7']);
       expect(code).toBe(1);

@@ -229,34 +229,45 @@ describe('claudeSpawnPlan', () => {
   const args = ['plugin', 'install', 'agentsys-core@agentsys'];
 
   test('spawns a posix or native executable directly', () => {
-    expect(claudeSpawnPlan('claude', args)).toEqual({ file: 'claude', args });
-    expect(claudeSpawnPlan('C:\\bin\\claude.exe', args)).toEqual({ file: 'C:\\bin\\claude.exe', args });
+    expect(claudeSpawnPlan('claude', args)).toEqual({ file: 'claude', args, verbatim: false });
+    expect(claudeSpawnPlan('C:\\bin\\claude.exe', args)).toEqual({ file: 'C:\\bin\\claude.exe', args, verbatim: false });
   });
 
   test('routes a batch shim through cmd.exe, which execFileSync cannot spawn', () => {
     // Node's src disallows direct .bat/.cmd spawning since the CVE-2024-27980
     // fix, so a shim handed to execFileSync fails with EINVAL.
     const shim = 'C:\\npm\\claude.cmd';
-    expect(claudeSpawnPlan(shim, args)).toEqual({
+    expect(claudeSpawnPlan(shim, args, undefined, 'win32')).toEqual({
       file: 'cmd.exe',
-      args: ['/d', '/s', '/c', '""C:\\npm\\claude.cmd" plugin install agentsys-core@agentsys"'],
+      args: ['/d', '/s', '/c', '""C:\\npm\\claude.cmd" "plugin" "install" "agentsys-core@agentsys""'],
       verbatim: true
     });
-    expect(claudeSpawnPlan('C:\\npm\\claude.bat', args).file).toBe('cmd.exe');
+    expect(claudeSpawnPlan('C:\\npm\\claude.bat', args, undefined, 'win32').file).toBe('cmd.exe');
+  });
+
+  test('spawns a .cmd directly off Windows, where cmd.exe does not exist', () => {
+    // The extension alone is not evidence a file needs a shell: routing a
+    // repo-local build.cmd through a missing cmd.exe would only cause ENOENT.
+    expect(claudeSpawnPlan('./claude.cmd', args, undefined, 'linux'))
+      .toEqual({ file: './claude.cmd', args, verbatim: false });
   });
 
   test('honours COMSPEC when routing through a shell', () => {
-    expect(claudeSpawnPlan('claude.cmd', args, 'C:\\Windows\\system32\\cmd.exe').file)
+    expect(claudeSpawnPlan('claude.cmd', args, 'C:\\Windows\\system32\\cmd.exe', 'win32').file)
       .toBe('C:\\Windows\\system32\\cmd.exe');
   });
 
   test('refuses arguments cmd.exe would reparse', () => {
     // cmd.exe re-splits its command line, so an unquoted metacharacter would be
     // a command injection - the exact hazard behind CVE-2024-27980.
-    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'x&calc'])).toThrow(/Refusing to pass/);
-    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a|b'])).toThrow(/Refusing to pass/);
-    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a b'])).toThrow(/Refusing to pass/);
-    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a"b'])).toThrow(/Refusing to pass/);
+    const reject = arg => () => claudeSpawnPlan('claude.cmd', ['plugin', 'install', arg], undefined, 'win32');
+    expect(reject('x&calc')).toThrow(/Refusing to pass/);
+    expect(reject('a|b')).toThrow(/Refusing to pass/);
+    expect(reject('a b')).toThrow(/Refusing to pass/);
+    expect(reject('a"b')).toThrow(/Refusing to pass/);
+    // CR and LF are refused wherever they appear, trailing included.
+    expect(reject('agentsys-core@agentsys\n')).toThrow(/Refusing to pass/);
+    expect(reject('a\n&calc')).toThrow(/Refusing to pass/);
   });
 
   test('passes the same arguments through unchecked when no shell is involved', () => {

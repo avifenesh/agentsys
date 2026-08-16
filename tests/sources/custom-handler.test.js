@@ -174,6 +174,39 @@ describe('Custom Handler', () => {
       expect(result.tool).toBe('nonexistent-tool');
     });
 
+    it('should probe an npm-shipped tool through its Windows shim', () => {
+      // execFileSync applies no PATHEXT, so a bare 'npx' is ENOENT on Windows -
+      // and npx.cmd cannot be spawned directly since the CVE-2024-27980 fix, so
+      // the probe would report an installed tool as unavailable either way.
+      execFileSync.mockReturnValue('11.0.0');
+      const platform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+
+      let result;
+      try {
+        result = customHandler.probeCLI('npx');
+      } finally {
+        Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+      }
+
+      expect(result.available).toBe(true);
+      expect(execFileSync).toHaveBeenCalledWith(
+        'cmd.exe',
+        ['/d', '/s', '/c', '""npx.cmd" "--version""'],
+        expect.objectContaining({ windowsVerbatimArguments: true })
+      );
+    });
+
+    it('should probe a plain executable directly off Windows', () => {
+      execFileSync.mockReturnValue('gh version 2.0.0');
+
+      customHandler.probeCLI('gh');
+
+      expect(execFileSync).toHaveBeenCalledWith('gh', ['--version'], expect.objectContaining({
+        stdio: 'pipe'
+      }));
+    });
+
     it('should return known patterns for gh tool', () => {
       execFileSync.mockReturnValue('gh version 2.0.0');
 

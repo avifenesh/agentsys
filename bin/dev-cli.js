@@ -14,7 +14,7 @@
 
 const path = require('path');
 const { execSync, spawnSync } = require('child_process');
-const { resolveExecutableForPlatform } = require('../lib/utils/command-parser');
+const { resolveExecutableForPlatform, planShimSpawn, shimSpawnOptions } = require('../lib/utils/command-parser');
 
 const VERSION = require('../package.json').version;
 const ROOT_DIR = path.join(__dirname, '..');
@@ -284,17 +284,23 @@ const COMMANDS = {
           cmdArgs.push(...args);
         }
         const npmExecutable = resolveExecutableForPlatform('npm');
-        const result = spawnSync(npmExecutable, cmdArgs, {
+        // npm resolves to npm.cmd on Windows, which cannot be spawned directly.
+        const plan = planShimSpawn(npmExecutable, cmdArgs);
+        const result = spawnSync(plan.file, plan.args, shimSpawnOptions(plan, {
           cwd: ROOT_DIR,
           stdio: 'inherit',
           shell: false,
           windowsHide: true
-        });
+        }));
         if (result.error) {
           throw result.error;
         }
         return typeof result.status === 'number' ? result.status : 1;
       } catch (err) {
+        // planShimSpawn refuses arguments cmd.exe cannot carry, and everything
+        // after `agentsys-dev test --` reaches it, so this path is user-facing:
+        // exiting 1 in silence would leave nothing to act on.
+        console.error(`[ERROR] ${err.message}`);
         return err.status || 1;
       }
     }

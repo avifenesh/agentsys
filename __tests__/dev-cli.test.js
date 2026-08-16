@@ -245,8 +245,15 @@ describe('dev-cli module', () => {
 
   test('test command resolves npm executable without shell interpolation', () => {
     expect(cliSource).toContain('resolveExecutableForPlatform');
-    expect(cliSource).toContain('spawnSync(npmExecutable');
     expect(cliSource).toContain('shell: false');
+  });
+
+  test('test command routes the npm.cmd shim through a spawn plan', () => {
+    // npm resolves to npm.cmd on Windows, and a direct spawn of it fails with
+    // EINVAL since the CVE-2024-27980 fix, so the plan must not be bypassed.
+    expect(cliSource).toContain('planShimSpawn(npmExecutable');
+    expect(cliSource).toContain('spawnSync(plan.file, plan.args, shimSpawnOptions(plan');
+    expect(cliSource).not.toContain('spawnSync(npmExecutable');
   });
 
   test('exports parseArgs, COMMANDS, VALIDATE_SUBCOMMANDS, NEW_SUBCOMMANDS, route', () => {

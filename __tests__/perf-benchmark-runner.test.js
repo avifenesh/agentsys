@@ -109,6 +109,45 @@ describe('runBenchmark', () => {
     }));
   });
 
+  it('runs a batch shim through cmd.exe instead of spawning it directly', () => {
+    // Node fails with EINVAL on a direct .cmd spawn since the CVE-2024-27980
+    // fix, so an npm-based benchmark command needs the cmd.exe hop. The hop is
+    // win32-only, so the platform is faked rather than skipping off Windows.
+    execFileSync.mockImplementation(() => 'output');
+    const platform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+
+    try {
+      runBenchmark('npm.cmd run bench', { allowShort: true });
+    } finally {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    }
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      'cmd.exe',
+      ['/d', '/s', '/c', '""npm.cmd" "run" "bench""'],
+      expect.objectContaining({ windowsVerbatimArguments: true })
+    );
+  });
+
+  it('spawns a .cmd directly off Windows, where cmd.exe does not exist', () => {
+    execFileSync.mockImplementation(() => 'output');
+    const platform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+
+    try {
+      runBenchmark('./build.cmd bench', { allowShort: true });
+    } finally {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    }
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      './build.cmd',
+      ['bench'],
+      expect.not.objectContaining({ windowsVerbatimArguments: true })
+    );
+  });
+
   it('sets PERF_RUN_DURATION env variable by default', () => {
     execFileSync.mockImplementation(() => 'output');
 
