@@ -20,7 +20,8 @@ const VERSION = require('../package.json').version;
 const PACKAGE_DIR = path.join(__dirname, '..');
 const discovery = require('../lib/discovery');
 const transforms = require('../lib/adapter-transforms');
-const { resolveExecutableForPlatform, planShimSpawn, shimSpawnOptions } = require('../lib/utils/command-parser');
+const { planShimSpawn, shimSpawnOptions, WINDOWS_BATCH_SHIM } = require('../lib/utils/command-parser');
+const { claudeExecutable } = require('../lib/utils/claude-executable');
 
 // Valid tool names
 const VALID_TOOLS = ['claude', 'opencode', 'codex', 'cursor', 'kiro'];
@@ -64,38 +65,8 @@ function commandExists(cmd) {
   }
 }
 
-// Extensions CreateProcess can launch directly. A .ps1 and an extensionless npm
-// shell script also show up in `where.exe` output but can never be spawned.
-const WINDOWS_DIRECT_EXEC = /\.(exe|com)$/i;
-// Batch shims need a cmd.exe hop: since the CVE-2024-27980 fix (Node 18.20.2 /
-// 20.12.2 / 21.7.3) src disallows direct .bat and .cmd spawning, so handing one
-// to execFileSync fails with EINVAL rather than running it.
-const WINDOWS_BATCH_SHIM = /\.(cmd|bat)$/i;
 // Arguments safe to hand to cmd.exe: no whitespace, no shell metacharacters.
 const CMD_SAFE_ARG = /^[A-Za-z0-9@._:\\/+-]+$/;
-
-/**
- * Pick the Claude Code executable from a `where.exe claude` result.
- *
- * execFileSync does not apply PATHEXT, so an extensionless 'claude' cannot be
- * spawned on Windows - but the suffix is not knowable either: the npm global
- * install provides claude.cmd while the native installer provides claude.exe.
- * Rank the directly launchable .exe/.com ahead of a batch shim regardless of
- * PATH order, since the shim costs an extra cmd.exe hop, and fall back to the
- * shim mapping. Kept pure so the win32 branch is testable off Windows.
- */
-function pickClaudeExecutable(platform, whereOutput) {
-  if (platform !== 'win32') {
-    return 'claude';
-  }
-  const candidates = String(whereOutput || '')
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean);
-  return candidates.find(candidate => WINDOWS_DIRECT_EXEC.test(candidate))
-    || candidates.find(candidate => WINDOWS_BATCH_SHIM.test(candidate))
-    || resolveExecutableForPlatform('claude', platform);
-}
 
 /**
  * Build the file and argv for one Claude Code invocation.
@@ -115,26 +86,6 @@ function claudeSpawnPlan(executable, args, comspec, platform = process.platform)
     }
   }
   return planShimSpawn(executable, args, { comspec, platform });
-}
-
-let claudeBinCache;
-
-/**
- * Resolve the Claude Code executable once per process.
- */
-function claudeExecutable() {
-  if (claudeBinCache === undefined) {
-    let whereOutput = '';
-    if (process.platform === 'win32') {
-      try {
-        whereOutput = execFileSync('where.exe', ['claude'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-      } catch {
-        // Fall back to the shim mapping below.
-      }
-    }
-    claudeBinCache = pickClaudeExecutable(process.platform, whereOutput);
-  }
-  return claudeBinCache;
 }
 
 /**
@@ -2425,7 +2376,5 @@ module.exports = {
   parseGitHubSource,
   installForCursor,
   installForKiro,
-  pickClaudeExecutable,
-  claudeSpawnPlan,
-  claudeExecutable
+  claudeSpawnPlan
 };

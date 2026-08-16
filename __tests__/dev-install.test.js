@@ -3,6 +3,7 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const devInstallPath = path.join(__dirname, '..', 'scripts', 'dev-install.js');
@@ -280,6 +281,120 @@ describe('dev-install script', () => {
       });
 
       expect(require(devInstallPath).commandExists('claude')).toBe(false);
+    });
+  });
+
+  describe('installClaude external commands', () => {
+    const realPlatform = process.platform;
+    const realComspec = process.env.comspec;
+    const realHome = process.env.HOME;
+    const realUserProfile = process.env.USERPROFILE;
+    let home;
+
+    beforeEach(() => {
+      // installClaude writes under HOME - point it at a scratch dir so the run
+      // cannot touch the developer's own ~/.claude.
+      home = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-install-claude-'));
+      process.env.HOME = home;
+      process.env.USERPROFILE = home;
+      process.env.comspec = 'cmd.exe';
+    });
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true });
+      restoreEnv('HOME', realHome);
+      restoreEnv('USERPROFILE', realUserProfile);
+      restoreEnv('comspec', realComspec);
+      fs.rmSync(home, { recursive: true, force: true });
+      jest.resetModules();
+      jest.clearAllMocks();
+    });
+
+    function restoreEnv(name, value) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+
+    /**
+     * Run installClaude with a faked platform and a stubbed child_process.
+     *
+     * whereOutput is what `where.exe claude` answers, which is what decides the
+     * executable on win32; spawn is what every other command does, so a test can
+     * make the claude call fail the way a real spawn failure does.
+     */
+    function runInstallClaude(platform, { whereOutput = '', spawn = () => '' } = {}) {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+      jest.resetModules();
+      const childProcess = require('child_process');
+      const execFileSync = jest.spyOn(childProcess, 'execFileSync').mockImplementation((file, args, options) => {
+        if (/where\.exe$/i.test(file) && args[0] === 'claude') {
+          return whereOutput;
+        }
+        return spawn(file, args, options);
+      });
+      const logs = [];
+      const consoleLog = jest.spyOn(console, 'log').mockImplementation(msg => logs.push(String(msg)));
+      require(devInstallPath).installClaude();
+      consoleLog.mockRestore();
+      const claudeCalls = execFileSync.mock.calls.filter(([, args]) => args.includes('marketplace') || args.join(' ').includes('"marketplace"'));
+      return { execFileSync, logs, claudeCalls };
+    }
+
+    test('spawns the claude.exe where.exe resolved, with no cmd.exe hop', () => {
+      const native = 'C:\\Users\\u\\.local\\bin\\claude.exe';
+      const { claudeCalls, execFileSync } = runInstallClaude('win32', { whereOutput: `${native}\r\n` });
+
+      expect(claudeCalls).toEqual([[native, ['plugin', 'marketplace', 'remove', 'agent-sh/agentsys'], { stdio: 'pipe' }]]);
+      expect(execFileSync.mock.calls.some(([file]) => file === 'cmd.exe')).toBe(false);
+    });
+
+    test('routes the claude.cmd where.exe resolved through cmd.exe', () => {
+      const shim = 'C:\\npm\\claude.cmd';
+      const { claudeCalls } = runInstallClaude('win32', { whereOutput: `${shim}\r\n` });
+
+      expect(claudeCalls).toEqual([[
+        'cmd.exe',
+        ['/d', '/s', '/c', `""${shim}" "plugin" "marketplace" "remove" "agent-sh/agentsys""`],
+        { stdio: 'pipe', windowsVerbatimArguments: true }
+      ]]);
+    });
+
+    test('spawns plain claude off Windows', () => {
+      const { claudeCalls } = runInstallClaude('linux');
+
+      expect(claudeCalls).toEqual([['claude', ['plugin', 'marketplace', 'remove', 'agent-sh/agentsys'], { stdio: 'pipe' }]]);
+    });
+
+    test('reports a claude that could not be started at all', () => {
+      // A wrong executable used to be indistinguishable from nothing to remove:
+      // the catch swallowed it and the run claimed success having done nothing.
+      const { logs } = runInstallClaude('linux', {
+        spawn: (file, args) => {
+          if (args.includes('marketplace')) {
+            throw Object.assign(new Error('spawnSync claude ENOENT'), { code: 'ENOENT', status: null });
+          }
+          return '';
+        }
+      });
+
+      expect(logs.some(line => line.includes('[WARN]') && line.includes('Could not run claude') && line.includes('ENOENT'))).toBe(true);
+    });
+
+    test('stays quiet when claude ran and exited non-zero', () => {
+      // Nothing to remove is the normal case, not a failure worth a warning.
+      const { logs } = runInstallClaude('linux', {
+        spawn: (file, args) => {
+          if (args.includes('marketplace')) {
+            throw Object.assign(new Error('Command failed'), { status: 1 });
+          }
+          return '';
+        }
+      });
+
+      expect(logs.some(line => line.includes('[WARN]'))).toBe(false);
     });
   });
 
