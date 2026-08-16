@@ -383,6 +383,54 @@ describe('dev-install script', () => {
       expect(logs.some(line => line.includes('[WARN]') && line.includes('Could not run claude') && line.includes('ENOENT'))).toBe(true);
     });
 
+    test('reports a claude.cmd cmd.exe could not launch', () => {
+      // The shim host is the one this whole fix is about, and there the child is
+      // cmd.exe: it starts fine, so a shim it cannot launch shows up only as its
+      // 9009 exit code. status === null alone would never see it.
+      const { logs } = runInstallClaude('win32', {
+        whereOutput: 'C:\\npm\\claude.cmd\r\n',
+        spawn: (file, args) => {
+          if (args.join(' ').includes('"marketplace"')) {
+            throw Object.assign(new Error('Command failed'), { status: 9009 });
+          }
+          return '';
+        }
+      });
+
+      expect(logs.some(line => line.includes('[WARN]') && line.includes('C:\\npm\\claude.cmd') && line.includes('exit 9009'))).toBe(true);
+    });
+
+    test('stays quiet when a claude.cmd ran and exited non-zero', () => {
+      // Through cmd.exe as well, the shim's own exit code still means claude ran.
+      const { logs } = runInstallClaude('win32', {
+        whereOutput: 'C:\\npm\\claude.cmd\r\n',
+        spawn: (file, args) => {
+          if (args.join(' ').includes('"marketplace"')) {
+            throw Object.assign(new Error('Command failed'), { status: 1 });
+          }
+          return '';
+        }
+      });
+
+      expect(logs.some(line => line.includes('[WARN]'))).toBe(false);
+    });
+
+    test('9009 from a direct executable is the executable talking, not cmd.exe', () => {
+      // Only the shim route goes through cmd.exe, so 9009 from a .exe is just an
+      // exit code and has to stay a normal best-effort failure.
+      const { logs } = runInstallClaude('win32', {
+        whereOutput: 'C:\\Users\\u\\.local\\bin\\claude.exe\r\n',
+        spawn: (file, args) => {
+          if (args.includes('marketplace')) {
+            throw Object.assign(new Error('Command failed'), { status: 9009 });
+          }
+          return '';
+        }
+      });
+
+      expect(logs.some(line => line.includes('[WARN]'))).toBe(false);
+    });
+
     test('stays quiet when claude ran and exited non-zero', () => {
       // Nothing to remove is the normal case, not a failure worth a warning.
       const { logs } = runInstallClaude('linux', {

@@ -31,7 +31,8 @@ const transforms = require(path.join(SOURCE_DIR, 'lib', 'adapter-transforms'));
 const {
   resolveExecutableForPlatform,
   planShimSpawn,
-  shimSpawnOptions
+  shimSpawnOptions,
+  WINDOWS_BATCH_SHIM
 } = require(path.join(SOURCE_DIR, 'lib', 'utils', 'command-parser'));
 const { claudeExecutable } = require(path.join(SOURCE_DIR, 'lib', 'utils', 'claude-executable'));
 
@@ -55,6 +56,9 @@ const AGENTSYS_DIR = path.join(HOME, '.agentsys');
 
 // Discover plugins from filesystem
 const PLUGINS = discovery.discoverPlugins(SOURCE_DIR);
+
+// cmd.exe's exit code for a command it could not find or launch.
+const CMD_NOT_RECOGNIZED = 9009;
 
 function log(msg) {
   console.log(`[dev-install] ${msg}`);
@@ -294,6 +298,10 @@ function installClaude() {
   // global install ships claude.cmd and the native installer ships claude.exe.
   const claudeBin = claudeExecutable();
 
+  // A .cmd claude is launched through cmd.exe rather than directly, so the two
+  // failure shapes below differ by which process is the one that fails.
+  const viaCmdShim = process.platform === 'win32' && WINDOWS_BATCH_SHIM.test(claudeBin);
+
   // The removals below are best-effort - a marketplace that was never added and
   // a plugin that was never installed both exit non-zero, and that is fine. A
   // claude that could not be started at all is not: it would make every removal
@@ -301,10 +309,16 @@ function installClaude() {
   let spawnFailureReported = false;
   const reportIfNeverRan = (err) => {
     // execFileSync sets a numeric status when the child ran and exited non-zero;
-    // a spawn failure leaves status null and carries the errno code instead.
-    if (typeof err.status === 'number' || spawnFailureReported) return;
+    // a spawn failure leaves status null and carries the errno code instead. That
+    // alone misses the shim host: there the child is cmd.exe, which starts fine
+    // and reports a shim it could not launch as exit 9009, its code for "not
+    // recognized as an internal or external command".
+    const neverRan = typeof err.status !== 'number'
+      || (viaCmdShim && err.status === CMD_NOT_RECOGNIZED);
+    if (!neverRan || spawnFailureReported) return;
     spawnFailureReported = true;
-    log(`  [WARN] Could not run ${claudeBin} (${err.code || err.message}); leaving any marketplace or installed plugins in place`);
+    const reason = err.code || (typeof err.status === 'number' ? `exit ${err.status}` : err.message);
+    log(`  [WARN] Could not run ${claudeBin} (${reason}); leaving any marketplace or installed plugins in place`);
   };
 
   // Remove marketplace plugins first
