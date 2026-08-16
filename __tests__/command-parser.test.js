@@ -72,9 +72,11 @@ describe('resolveExecutableForPlatform', () => {
 
 describe('planShimSpawn', () => {
   // The .bat/.cmd rewrite is win32-only, so every shim case names the platform
-  // rather than depending on the host running the suite.
+  // rather than depending on the host running the suite. comspec is pinned for
+  // the same reason: a real Windows host has COMSPEC set to an absolute path, so
+  // reading it here would make the expected file differ per host.
   const plan = (executable, args, options = {}) =>
-    planShimSpawn(executable, args, { platform: 'win32', ...options });
+    planShimSpawn(executable, args, { platform: 'win32', comspec: 'cmd.exe', ...options });
 
   test('leaves a directly spawnable executable alone', () => {
     const args = ['run', 'bench'];
@@ -155,6 +157,25 @@ describe('planShimSpawn', () => {
   test('honours an explicit comspec', () => {
     expect(plan('npm.cmd', [], { comspec: 'C:\\Windows\\system32\\cmd.exe' }).file)
       .toBe('C:\\Windows\\system32\\cmd.exe');
+  });
+
+  test('falls back to COMSPEC, then to a bare cmd.exe', () => {
+    // Callers that have no comspec to pass get whatever Windows set, which is
+    // where a hardened box points COMSPEC somewhere other than System32.
+    const comspec = process.env.comspec;
+    try {
+      process.env.comspec = 'D:\\shells\\cmd.exe';
+      expect(planShimSpawn('npm.cmd', [], { platform: 'win32' }).file).toBe('D:\\shells\\cmd.exe');
+
+      delete process.env.comspec;
+      expect(planShimSpawn('npm.cmd', [], { platform: 'win32' }).file).toBe('cmd.exe');
+    } finally {
+      if (comspec === undefined) {
+        delete process.env.comspec;
+      } else {
+        process.env.comspec = comspec;
+      }
+    }
   });
 
   test('shimSpawnOptions adds windowsVerbatimArguments only for a shim', () => {

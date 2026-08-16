@@ -44,7 +44,11 @@ test('marketplace plugin names are unique and mirrored in plugins.txt', () => {
   const pluginsTxt = fs
     .readFileSync(path.join(repoRoot, 'scripts/plugins.txt'), 'utf8')
     .trim()
-    .split('\n')
+    // Tolerate CRLF so a checkout's line endings cannot masquerade as a
+    // mismatched plugin name. Nothing else is normalised: the file is generated
+    // by scripts/generate-plugin-list.js, so stray whitespace in it is a defect
+    // this test should still catch.
+    .split(/\r?\n/)
     .filter(Boolean);
 
   expect([...pluginsTxt].sort()).toEqual([...names].sort());

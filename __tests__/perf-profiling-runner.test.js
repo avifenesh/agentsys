@@ -34,13 +34,22 @@ it('runs a batch shim profiler command through cmd.exe', () => {
 
   const runner = require('../lib/perf/profiling-runner');
   // The cmd.exe hop is win32-only, so fake the platform instead of skipping.
+  // comspec is pinned too: a real Windows host has COMSPEC set to an absolute
+  // path, which would not match a bare cmd.exe.
   const platform = process.platform;
+  const comspec = process.env.comspec;
   Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+  process.env.comspec = 'cmd.exe';
 
   try {
     expect(runner.runProfiling().ok).toBe(true);
   } finally {
     Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    if (comspec === undefined) {
+      delete process.env.comspec;
+    } else {
+      process.env.comspec = comspec;
+    }
   }
 
   expect(execFileSync).toHaveBeenCalledWith(

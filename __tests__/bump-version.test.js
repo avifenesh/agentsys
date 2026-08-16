@@ -104,12 +104,21 @@ describe('bump-version', () => {
       // `agentsys-dev bump` needs the same hop as the rest of the CLI.
       const { execFileSync } = require('child_process');
       const platform = process.platform;
+      // A real Windows host has COMSPEC set to an absolute path, so it is pinned
+      // here as well - otherwise the expected shell differs per host.
+      const comspec = process.env.comspec;
       Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      process.env.comspec = 'cmd.exe';
 
       try {
         expect(main(['3.7.3'])).toBe(0);
       } finally {
         Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+        if (comspec === undefined) {
+          delete process.env.comspec;
+        } else {
+          process.env.comspec = comspec;
+        }
       }
 
       expect(execFileSync).toHaveBeenCalledWith(
