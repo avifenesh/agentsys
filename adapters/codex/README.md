@@ -5,10 +5,12 @@ Professional-grade slash commands adapted for OpenAI's Codex CLI.
 ## Quick Install
 
 ```bash
-git clone https://github.com/agent-sh/agentsys.git
-cd agentsys
-./adapters/codex/install.sh
+npm install -g agentsys
+agentsys --tool codex
 ```
+
+The `adapters/codex/install.sh` script still works from a clone, but it is
+deprecated: it installs pre-rename plugin names.
 
 ## Prerequisites
 
@@ -219,9 +221,8 @@ Node.js · Python · Rust · Go · Java
 To update commands:
 
 ```bash
-cd /path/to/agentsys
-git pull origin main
-./adapters/codex/install.sh
+npm install -g agentsys@latest
+agentsys --tool codex
 ```
 
 ---
@@ -236,7 +237,7 @@ git pull origin main
 ### Path errors
 Re-run installer to fix path substitutions:
 ```bash
-./adapters/codex/install.sh
+agentsys --tool codex
 ```
 
 ### Node.js not found

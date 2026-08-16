@@ -22,10 +22,12 @@ OpenAI's Codex command-line interface.
 
 **Installation:**
 ```bash
-git clone https://github.com/agent-sh/agentsys.git
-cd agentsys
-./adapters/codex/install.sh
+npm install -g agentsys
+agentsys --tool codex
 ```
+
+The `adapters/codex/install.sh` script still works from a clone, but it is
+deprecated: it installs pre-rename plugin names.
 
 **Usage:**
 ```bash
@@ -44,10 +46,12 @@ Open-source AI coding assistant.
 
 **Installation:**
 ```bash
-git clone https://github.com/agent-sh/agentsys.git
-cd agentsys
-./adapters/opencode/install.sh
+npm install -g agentsys
+agentsys --tool opencode
 ```
+
+The `adapters/opencode/install.sh` script still works from a clone, but it is
+deprecated: it installs pre-rename plugin names.
 
 **Usage:**
 ```bash
@@ -145,32 +149,28 @@ claude plugin install next-task@agentsys
 
 ### Codex CLI
 ```bash
-# Via installer script
-./adapters/codex/install.sh
+agentsys --tool codex
 ```
 
 **Pros:**
 - One-command installation
 - All commands at once
-- Easy updates (re-run installer)
+- Easy updates (re-run the CLI)
 
 **Cons:**
-- Requires git clone first
 - Manual updates
 
 ### OpenCode
 ```bash
-# Via installer script
-./adapters/opencode/install.sh
+agentsys --tool opencode
 ```
 
 **Pros:**
 - One-command installation
 - OpenCode-specific features (@, !)
-- Easy updates (re-run installer)
+- Easy updates (re-run the CLI)
 
 **Cons:**
-- Requires git clone first
 - Manual updates
 
 ---
@@ -195,9 +195,8 @@ Automatic via marketplace updates.
 
 ### Codex CLI & OpenCode
 ```bash
-cd /path/to/agentsys
-git pull origin main
-./adapters/codex/install.sh    # Or ./adapters/opencode/install.sh
+npm install -g agentsys@latest
+agentsys --tool codex          # Or: agentsys --tool opencode
 ```
 
 ---
@@ -216,7 +215,7 @@ git pull origin main
 ### Path errors in commands
 Re-run the installer to fix path substitutions:
 ```bash
-./adapters/[tool]/install.sh
+agentsys --tool [tool]
 ```
 
 ### Node.js errors

@@ -5,10 +5,12 @@ Professional-grade slash commands adapted for OpenCode.
 ## Quick Install
 
 ```bash
-git clone https://github.com/agent-sh/agentsys.git
-cd agentsys
-./adapters/opencode/install.sh
+npm install -g agentsys
+agentsys --tool opencode
 ```
+
+The `adapters/opencode/install.sh` script still works from a clone, but it is
+deprecated: it installs pre-rename plugin names.
 
 ## Prerequisites
 
@@ -232,9 +234,8 @@ Node.js · Python · Rust · Go · Java
 To update commands:
 
 ```bash
-cd /path/to/agentsys
-git pull origin main
-./adapters/opencode/install.sh
+npm install -g agentsys@latest
+agentsys --tool opencode
 ```
 
 ---
@@ -253,7 +254,7 @@ Currently, OpenCode slash commands are only available in the TUI (Terminal User 
 ### Path errors
 Re-run installer to fix path substitutions:
 ```bash
-./adapters/opencode/install.sh
+agentsys --tool opencode
 ```
 
 ### Node.js not found
