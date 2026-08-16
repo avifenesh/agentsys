@@ -236,13 +236,15 @@ describe('claudeSpawnPlan', () => {
   test('routes a batch shim through cmd.exe, which execFileSync cannot spawn', () => {
     // Node's src disallows direct .bat/.cmd spawning since the CVE-2024-27980
     // fix, so a shim handed to execFileSync fails with EINVAL.
+    // comspec is passed rather than left to the environment: a real Windows host
+    // has COMSPEC set to an absolute path, which would not match a bare cmd.exe.
     const shim = 'C:\\npm\\claude.cmd';
-    expect(claudeSpawnPlan(shim, args, undefined, 'win32')).toEqual({
+    expect(claudeSpawnPlan(shim, args, 'cmd.exe', 'win32')).toEqual({
       file: 'cmd.exe',
       args: ['/d', '/s', '/c', '""C:\\npm\\claude.cmd" "plugin" "install" "agentsys-core@agentsys""'],
       verbatim: true
     });
-    expect(claudeSpawnPlan('C:\\npm\\claude.bat', args, undefined, 'win32').file).toBe('cmd.exe');
+    expect(claudeSpawnPlan('C:\\npm\\claude.bat', args, 'cmd.exe', 'win32').file).toBe('cmd.exe');
   });
 
   test('spawns a .cmd directly off Windows, where cmd.exe does not exist', () => {

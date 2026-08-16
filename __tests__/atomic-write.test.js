@@ -309,10 +309,14 @@ describe('atomic-write', () => {
 
     it('throws on read-only directory', () => {
       if (isWindows) {
-        // On Windows, we can test by trying to write to a system directory
-        // that requires admin privileges
-        const systemPath = 'C:\\Windows\\System32\\atomic-test-file.txt';
-        expect(() => writeFileAtomic(systemPath, 'test')).toThrow();
+        // A System32 write is not a reliable refusal: anything elevated - a CI
+        // runner included - succeeds and leaves the file behind. Use a parent
+        // that cannot hold children at all, which is refused whatever the
+        // account can do.
+        const notADirectory = path.join(tempDir, 'plain-file');
+        fs.writeFileSync(notADirectory, 'a file, not a directory');
+
+        expect(() => writeFileAtomic(path.join(notADirectory, 'file.txt'), 'test')).toThrow();
         return;
       }
 

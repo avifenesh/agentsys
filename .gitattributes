@@ -1,0 +1,10 @@
+# Check every text file out with LF, on Windows too.
+#
+# scripts/generate-docs.js, scripts/gen-adapters.js and several tests compare
+# generated content against what is on disk byte for byte. Git's Windows default
+# converts to CRLF on checkout, which makes every one of those comparisons fail:
+# generated sections read as permanently stale and line-split parsers keep a
+# trailing \r on each value.
+* text=auto eol=lf
+
+*.png binary

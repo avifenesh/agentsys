@@ -115,12 +115,21 @@ describe('runBenchmark', () => {
     // win32-only, so the platform is faked rather than skipping off Windows.
     execFileSync.mockImplementation(() => 'output');
     const platform = process.platform;
+    // A real Windows host has COMSPEC set to an absolute path, so it is pinned
+    // here as well - otherwise the expected shell differs per host.
+    const comspec = process.env.comspec;
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    process.env.comspec = 'cmd.exe';
 
     try {
       runBenchmark('npm.cmd run bench', { allowShort: true });
     } finally {
       Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+      if (comspec === undefined) {
+        delete process.env.comspec;
+      } else {
+        process.env.comspec = comspec;
+      }
     }
 
     expect(execFileSync).toHaveBeenCalledWith(

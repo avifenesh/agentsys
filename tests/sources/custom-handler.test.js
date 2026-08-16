@@ -180,13 +180,22 @@ describe('Custom Handler', () => {
       // the probe would report an installed tool as unavailable either way.
       execFileSync.mockReturnValue('11.0.0');
       const platform = process.platform;
+      // A real Windows host has COMSPEC set to an absolute path, so it is pinned
+      // here as well - otherwise the expected shell differs per host.
+      const comspec = process.env.comspec;
       Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      process.env.comspec = 'cmd.exe';
 
       let result;
       try {
         result = customHandler.probeCLI('npx');
       } finally {
         Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+        if (comspec === undefined) {
+          delete process.env.comspec;
+        } else {
+          process.env.comspec = comspec;
+        }
       }
 
       expect(result.available).toBe(true);
