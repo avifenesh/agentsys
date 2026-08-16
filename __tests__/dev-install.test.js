@@ -163,11 +163,123 @@ describe('dev-install script', () => {
     });
 
     test('removes marketplace for Claude', () => {
-      expect(devInstallSource.includes('plugin marketplace remove')).toBe(true);
+      expect(devInstallSource.includes("'plugin', 'marketplace', 'remove', 'agent-sh/agentsys'")).toBe(true);
     });
 
     test('copies to ~/.agentsys for OpenCode/Codex', () => {
       expect(devInstallSource.includes('copyToAgentSys')).toBe(true);
+    });
+  });
+
+  describe('external commands', () => {
+    const realPlatform = process.platform;
+    const realComspec = process.env.comspec;
+
+    function setPlatform(platform) {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    }
+
+    afterEach(() => {
+      setPlatform(realPlatform);
+      if (realComspec === undefined) {
+        delete process.env.comspec;
+      } else {
+        process.env.comspec = realComspec;
+      }
+      jest.resetModules();
+      jest.clearAllMocks();
+    });
+
+    /**
+     * Load dev-install with child_process mocked, on the given platform.
+     *
+     * The platform is set before the require because resolveExecutableForPlatform
+     * and planShimSpawn read process.platform when runCommand calls them. comspec
+     * is pinned for the same reason: a real Windows host has COMSPEC set to an
+     * absolute path, so reading it would make the expected shell differ per host.
+     */
+    function loadWithPlatform(platform) {
+      setPlatform(platform);
+      process.env.comspec = 'cmd.exe';
+      jest.resetModules();
+      const childProcess = require('child_process');
+      jest.spyOn(childProcess, 'execFileSync').mockReturnValue('');
+      return {
+        devInstall: require(devInstallPath),
+        execFileSync: childProcess.execFileSync
+      };
+    }
+
+    test('no execSync anywhere - every command is an argv list', () => {
+      expect(devInstallSource.includes('execSync(')).toBe(false);
+      expect(devInstallSource.includes('execFileSync')).toBe(true);
+    });
+
+    test('routes the claude shim through cmd.exe on Windows', () => {
+      const { devInstall, execFileSync } = loadWithPlatform('win32');
+
+      devInstall.runCommand('claude', ['plugin', 'uninstall', 'core@agentsys'], { stdio: 'pipe' });
+
+      expect(execFileSync).toHaveBeenCalledWith(
+        'cmd.exe',
+        ['/d', '/s', '/c', '""claude.cmd" "plugin" "uninstall" "core@agentsys""'],
+        { stdio: 'pipe', windowsVerbatimArguments: true }
+      );
+    });
+
+    test('spawns claude directly on other platforms', () => {
+      const { devInstall, execFileSync } = loadWithPlatform('linux');
+
+      devInstall.runCommand('claude', ['plugin', 'uninstall', 'core@agentsys'], { stdio: 'pipe' });
+
+      expect(execFileSync).toHaveBeenCalledWith(
+        'claude',
+        ['plugin', 'uninstall', 'core@agentsys'],
+        { stdio: 'pipe' }
+      );
+    });
+
+    test('resolves npm to its shim and keeps the cwd', () => {
+      const { devInstall, execFileSync } = loadWithPlatform('win32');
+
+      devInstall.runCommand('npm', ['install', '--production'], { cwd: 'C:\\Users\\dev\\.agentsys', stdio: 'pipe' });
+
+      expect(execFileSync).toHaveBeenCalledWith(
+        'cmd.exe',
+        ['/d', '/s', '/c', '""npm.cmd" "install" "--production""'],
+        { cwd: 'C:\\Users\\dev\\.agentsys', stdio: 'pipe', windowsVerbatimArguments: true }
+      );
+    });
+
+    test('a plugin name holding shell metacharacters stays one argument', () => {
+      const { devInstall, execFileSync } = loadWithPlatform('linux');
+
+      devInstall.runCommand('claude', ['plugin', 'uninstall', 'core & calc@agentsys'], { stdio: 'pipe' });
+
+      const [, args] = execFileSync.mock.calls[0];
+      expect(args).toEqual(['plugin', 'uninstall', 'core & calc@agentsys']);
+    });
+
+    test('commandExists asks where.exe on Windows and which elsewhere', () => {
+      const win = loadWithPlatform('win32');
+      win.devInstall.commandExists('claude');
+      expect(win.execFileSync.mock.calls[0][0]).toBe('where.exe');
+      expect(win.execFileSync.mock.calls[0][1]).toEqual(['claude']);
+
+      const linux = loadWithPlatform('linux');
+      linux.devInstall.commandExists('claude');
+      expect(linux.execFileSync).toHaveBeenCalledWith('which', ['claude'], { stdio: 'pipe' });
+    });
+
+    test('commandExists reports false when the lookup fails', () => {
+      setPlatform('linux');
+      jest.resetModules();
+      const childProcess = require('child_process');
+      jest.spyOn(childProcess, 'execFileSync').mockImplementation(() => {
+        throw new Error('not found');
+      });
+
+      expect(require(devInstallPath).commandExists('claude')).toBe(false);
     });
   });
 
