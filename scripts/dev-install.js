@@ -19,7 +19,7 @@
  *   - Runs synchronously for quick feedback
  */
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -28,6 +28,11 @@ const SOURCE_DIR = path.join(__dirname, '..');
 const VERSION = require(path.join(SOURCE_DIR, 'package.json')).version;
 const discovery = require(path.join(SOURCE_DIR, 'lib', 'discovery'));
 const transforms = require(path.join(SOURCE_DIR, 'lib', 'adapter-transforms'));
+const {
+  resolveExecutableForPlatform,
+  planShimSpawn,
+  shimSpawnOptions
+} = require(path.join(SOURCE_DIR, 'lib', 'utils', 'command-parser'));
 
 // Target directories
 const HOME = process.env.HOME || process.env.USERPROFILE;
@@ -54,9 +59,25 @@ function log(msg) {
   console.log(`[dev-install] ${msg}`);
 }
 
+/**
+ * Run one external command with an argv list instead of a shell string.
+ *
+ * The commands here (`claude`, `npm`) are .cmd shims on Windows, which need two
+ * separate fixes: resolveExecutableForPlatform supplies the extension that
+ * execFileSync will not look up itself, and planShimSpawn routes the shim
+ * through cmd.exe, since Node has refused to spawn .cmd directly since the
+ * CVE-2024-27980 fix. Plugin names reach this from discovery on disk, so they
+ * stay argv elements - a shell string would make a directory named `a & b` a
+ * second command.
+ */
+function runCommand(command, args, options = {}) {
+  const plan = planShimSpawn(resolveExecutableForPlatform(command), args);
+  return execFileSync(plan.file, plan.args, shimSpawnOptions(plan, options));
+}
+
 function commandExists(cmd) {
   try {
-    execSync(`${process.platform === 'win32' ? 'where' : 'which'} ${cmd}`, { stdio: 'pipe' });
+    runCommand(process.platform === 'win32' ? 'where.exe' : 'which', [cmd], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -269,7 +290,7 @@ function installClaude() {
 
   // Remove marketplace plugins first
   try {
-    execSync('claude plugin marketplace remove agent-sh/agentsys', { stdio: 'pipe' });
+    runCommand('claude', ['plugin', 'marketplace', 'remove', 'agent-sh/agentsys'], { stdio: 'pipe' });
     log('  Removed marketplace');
   } catch {
     // May not exist
@@ -280,7 +301,7 @@ function installClaude() {
     // Uninstall both current and pre-rename plugin IDs
     for (const suffix of ['agentsys', 'awesome-slash']) {
       try {
-        execSync(`claude plugin uninstall ${plugin}@${suffix}`, { stdio: 'pipe' });
+        runCommand('claude', ['plugin', 'uninstall', `${plugin}@${suffix}`], { stdio: 'pipe' });
       } catch {
         // May not be installed
       }
@@ -570,7 +591,7 @@ function copyToAgentSys() {
 
   // Install dependencies
   log('  Installing dependencies...');
-  execSync('npm install --production', { cwd: AGENTSYS_DIR, stdio: 'pipe' });
+  runCommand('npm', ['install', '--production'], { cwd: AGENTSYS_DIR, stdio: 'pipe' });
 
   agentSysCopied = true;
   log('  [OK] ~/.agentsys');
@@ -635,4 +656,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { main };
+module.exports = { main, runCommand, commandExists };
