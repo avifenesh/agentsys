@@ -33,7 +33,16 @@ it('runs a batch shim profiler command through cmd.exe', () => {
   }));
 
   const runner = require('../lib/perf/profiling-runner');
-  expect(runner.runProfiling().ok).toBe(true);
+  // The cmd.exe hop is win32-only, so fake the platform instead of skipping.
+  const platform = process.platform;
+  Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+
+  try {
+    expect(runner.runProfiling().ok).toBe(true);
+  } finally {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+  }
+
   expect(execFileSync).toHaveBeenCalledWith(
     'cmd.exe',
     ['/d', '/s', '/c', '""npx.cmd" "clinic" "doctor""'],

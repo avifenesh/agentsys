@@ -102,20 +102,21 @@ function pickClaudeExecutable(platform, whereOutput) {
 /**
  * Build the file and argv for one Claude Code invocation.
  *
- * planShimSpawn does the cmd.exe routing a batch shim needs. Every argument is
- * checked against a stricter rule than that quoting requires: callers only ever
- * pass literal subcommands and validated `<plugin>@<marketplace>` ids, so
- * anything carrying whitespace or a shell metacharacter is a bug rather than a
- * string to escape.
+ * planShimSpawn does the cmd.exe routing a batch shim needs, on win32 only.
+ * Every argument is checked against a stricter rule than that quoting requires:
+ * callers only ever pass literal subcommands and validated
+ * `<plugin>@<marketplace>` ids, so anything carrying whitespace or a shell
+ * metacharacter is a bug rather than a string to escape. The platform parameter
+ * exists so the win32 path stays testable off Windows.
  */
-function claudeSpawnPlan(executable, args, comspec) {
-  if (WINDOWS_BATCH_SHIM.test(executable)) {
+function claudeSpawnPlan(executable, args, comspec, platform = process.platform) {
+  if (platform === 'win32' && WINDOWS_BATCH_SHIM.test(executable)) {
     const unsafe = args.find(arg => !CMD_SAFE_ARG.test(arg));
     if (unsafe !== undefined) {
       throw new Error(`Refusing to pass ${JSON.stringify(unsafe)} to cmd.exe`);
     }
   }
-  return planShimSpawn(executable, args, { comspec });
+  return planShimSpawn(executable, args, { comspec, platform });
 }
 
 let claudeBinCache;
