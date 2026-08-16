@@ -257,6 +257,10 @@ describe('claudeSpawnPlan', () => {
     expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a|b'])).toThrow(/Refusing to pass/);
     expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a b'])).toThrow(/Refusing to pass/);
     expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a"b'])).toThrow(/Refusing to pass/);
+    // JavaScript's $ also matches before a trailing newline, so the guard has to
+    // assert end of input or 'id\n' - and 'id\n&calc' - would pass as safe.
+    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'agentsys-core@agentsys\n'])).toThrow(/Refusing to pass/);
+    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a\n&calc'])).toThrow(/Refusing to pass/);
   });
 
   test('passes the same arguments through unchecked when no shell is involved', () => {

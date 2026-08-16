@@ -107,10 +107,18 @@ describe('planShimSpawn', () => {
     expect(payload).toBe('""npm.cmd" "--cwd" "C:\\dir\\\\""');
   });
 
+  test('doubles a long run of backslashes without backtracking', () => {
+    const [, , , payload] = planShimSpawn('npm.cmd', ['\\'.repeat(5000)]).args;
+    expect(payload).toBe(`""npm.cmd" "${'\\'.repeat(10000)}""`);
+  });
+
   test('refuses arguments cmd.exe cannot carry faithfully', () => {
     // % is expanded even inside quotes, and a literal " ends the quoting.
     expect(() => planShimSpawn('npm.cmd', ['run', '%PATH%'])).toThrow(/not representable/);
     expect(() => planShimSpawn('npm.cmd', ['run', 'say "hi"'])).toThrow(/not representable/);
+    // A newline ends the command line, so what follows is dropped or run alone.
+    expect(() => planShimSpawn('npm.cmd', ['run', 'bench\ncalc'])).toThrow(/not representable/);
+    expect(() => planShimSpawn('npm.cmd', ['run', 'bench\r'])).toThrow(/not representable/);
     expect(() => planShimSpawn('npm.cmd', ['run', 'a\0b'])).toThrow(/null byte/);
     expect(() => planShimSpawn('npm.cmd', ['run', 42])).toThrow(/must be a string/);
   });

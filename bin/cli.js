@@ -72,7 +72,9 @@ const WINDOWS_DIRECT_EXEC = /\.(exe|com)$/i;
 // to execFileSync fails with EINVAL rather than running it.
 const WINDOWS_BATCH_SHIM = /\.(cmd|bat)$/i;
 // Arguments safe to hand to cmd.exe: no whitespace, no shell metacharacters.
-const CMD_SAFE_ARG = /^[A-Za-z0-9@._:\\/+-]+$/;
+// Ends with (?![\s\S]) rather than $, which in JavaScript also matches before a
+// trailing newline - so 'plugin\n' would otherwise pass as safe.
+const CMD_SAFE_ARG = /^[A-Za-z0-9@._:\\/+-]+(?![\s\S])/;
 
 /**
  * Pick the Claude Code executable from a `where.exe claude` result.

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Claude plugin marketplace/install/update/uninstall in `bin/cli.js` now spawn via `execFileSync` with an argv array, so no plugin ID reaches a shell (#388).
+- The cmd.exe argument guard in `bin/cli.js` ended in `$`, which in JavaScript also matches before a trailing newline - so an id like `core@agentsys\n` passed as safe, and whatever followed the newline was dropped by cmd.exe rather than checked. It now asserts end of input. `planShimSpawn` refuses CR and LF in an argument for the same reason.
 
 ### Fixed
 
