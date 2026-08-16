@@ -9,9 +9,6 @@ npm install -g agentsys
 agentsys --tool codex
 ```
 
-The `adapters/codex/install.sh` script still works from a clone, but it is
-deprecated: it installs pre-rename plugin names.
-
 ## Prerequisites
 
 - **Codex CLI** - Install from [developers.openai.com/codex/cli](https://developers.openai.com/codex/cli)

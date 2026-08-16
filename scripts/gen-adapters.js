@@ -214,7 +214,7 @@ function computeAdapters() {
 function findOrphanedAdapters(generatedFiles) {
   const orphans = [];
   // Hand-maintained files that should not be treated as orphans
-  const EXCLUDED_FILES = new Set(['README.md', 'install.sh']);
+  const EXCLUDED_FILES = new Set(['README.md']);
 
   function scanDirectory(dir, relativeBase) {
     if (!fs.existsSync(dir)) return;

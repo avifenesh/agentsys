@@ -26,9 +26,6 @@ npm install -g agentsys
 agentsys --tool codex
 ```
 
-The `adapters/codex/install.sh` script still works from a clone, but it is
-deprecated: it installs pre-rename plugin names.
-
 **Usage:**
 ```bash
 codex
@@ -49,9 +46,6 @@ Open-source AI coding assistant.
 npm install -g agentsys
 agentsys --tool opencode
 ```
-
-The `adapters/opencode/install.sh` script still works from a clone, but it is
-deprecated: it installs pre-rename plugin names.
 
 **Usage:**
 ```bash
@@ -239,7 +233,7 @@ Found a bug or want to add support for another tool?
 1. Open an issue: https://github.com/agent-sh/agentsys/issues
 2. Submit a PR with:
    - New adapter directory: `adapters/[tool-name]/`
-   - Installation script: `install.sh`
+   - Install support in `bin/cli.js` (the only installer)
    - Documentation: `README.md`
    - Update this file
 

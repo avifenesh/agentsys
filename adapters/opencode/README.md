@@ -9,9 +9,6 @@ npm install -g agentsys
 agentsys --tool opencode
 ```
 
-The `adapters/opencode/install.sh` script still works from a clone, but it is
-deprecated: it installs pre-rename plugin names.
-
 ## Prerequisites
 
 - **OpenCode** - Install from [opencode.ai](https://opencode.ai)

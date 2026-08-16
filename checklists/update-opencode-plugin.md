@@ -17,7 +17,6 @@ The native OpenCode plugin provides deep integration:
 | `adapters/opencode-plugin/index.ts` | Plugin implementation |
 | `adapters/opencode-plugin/package.json` | Dependencies |
 | `bin/cli.js` | npm installer (copies plugin) |
-| `adapters/opencode/install.sh` | Shell installer (copies plugin) |
 | `agent-docs/OPENCODE-REFERENCE.md` | Knowledge base |
 
 ## 1. Update Plugin Implementation
@@ -115,7 +114,7 @@ output.options.thinkingConfig = {
 
 ## Common Pitfalls
 
-- **Don't forget to update both installers** - `bin/cli.js` AND `adapters/opencode/install.sh`
+- **`bin/cli.js` is the only installer** - plugin changes land nowhere until it copies them
 - **Match agent names exactly** - Case-sensitive matching against `input.agent`
 - **Test all providers** - Each has different thinking APIs
 - **Keep flow.json format stable** - Other parts of the system read it

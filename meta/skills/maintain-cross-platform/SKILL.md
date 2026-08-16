@@ -126,8 +126,8 @@ permission:
 | `bin/cli.js` | Main installer (811 lines) - handles all 3 platforms |
 | `scripts/setup-hooks.js` | Git hooks installer (pre-commit, pre-push) |
 | `adapters/opencode-plugin/` | Native OpenCode TypeScript plugin |
-| `adapters/opencode/` | OpenCode install script (legacy) |
-| `adapters/codex/` | Codex install script (legacy) |
+| `adapters/opencode/` | Generated OpenCode commands, agents, skills |
+| `adapters/codex/` | Generated Codex skills |
 | `mcp-server/index.js` | Cross-platform MCP server |
 
 ### Validation Scripts (All in CI + Pre-Push)
