@@ -337,6 +337,14 @@ describe('CLI integration', () => {
     expect(cliSource).not.toMatch(/execFileSync\(claudeExecutable\(\)/);
   });
 
+  test('every skipped claude install is recorded as a failure', () => {
+    // detectInstalledPlatforms reports 'claude' from ~/.claude alone, so the CLI
+    // can be missing; and a dep whose id would be rejected is skipped. Both must
+    // reach claudeFailures or installed.json records an install that never ran.
+    expect(cliSource).toMatch(/if \(!commandExists\('claude'\)\)[\s\S]{0,300}claudeFailures\.set/);
+    expect(cliSource).toMatch(/test\(depName\)\) \{[\s\S]{0,160}claudeFailures\.set/);
+  });
+
   test('a plugin Claude Code did not register fails the process', () => {
     // `agentsys install x && next-step` must not proceed on a partial install.
     expect(cliSource).toMatch(/Claude Code did not register[\s\S]{0,400}process\.exitCode = 1/);

@@ -1170,10 +1170,19 @@ async function installPlugin(nameWithVersion, args) {
         console.log('  [NOTE] Claude Code installs whole plugins (granular not supported). Installing full plugin.');
       }
       // Claude uses marketplace install
-      if (commandExists('claude')) {
+      if (!commandExists('claude')) {
+        // detectInstalledPlatforms reports 'claude' whenever ~/.claude exists,
+        // so the CLI can still be missing - nothing was registered.
+        for (const depName of toFetch) {
+          claudeFailures.set(depName, 'claude not on PATH');
+        }
+      } else {
         try { claudeSpawn(['plugin', 'marketplace', 'add', 'agent-sh/agentsys'], { stdio: 'pipe' }); } catch {}
         for (const depName of toFetch) {
-          if (!/^[a-z0-9][a-z0-9-]*$/.test(depName)) continue;
+          if (!/^[a-z0-9][a-z0-9-]*$/.test(depName)) {
+            claudeFailures.set(depName, 'unsupported plugin id');
+            continue;
+          }
           try {
             claudeSpawn(['plugin', 'install', `${depName}@agentsys`], { stdio: 'pipe' });
           } catch {
