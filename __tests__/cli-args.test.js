@@ -337,6 +337,11 @@ describe('CLI integration', () => {
     expect(cliSource).not.toMatch(/execFileSync\(claudeExecutable\(\)/);
   });
 
+  test('a plugin Claude Code did not register fails the process', () => {
+    // `agentsys install x && next-step` must not proceed on a partial install.
+    expect(cliSource).toMatch(/Claude Code did not register[\s\S]{0,400}process\.exitCode = 1/);
+  });
+
   test('claude executable is never hardcoded to a single windows suffix', () => {
     expect(cliSource).not.toMatch(/claudeBin = resolveExecutableForPlatform\('claude'\)/);
   });

@@ -853,6 +853,21 @@ function saveInstalledJson(data) {
   fs.writeFileSync(p, JSON.stringify(data, null, 2) + '\n');
 }
 
+/**
+ * Drop platforms a plugin never actually reached from what gets recorded.
+ *
+ * installed.json is load-bearing: `list` prints these platforms back, and
+ * removePlugin uses them to decide whether to run `claude plugin uninstall`.
+ * Recording 'claude' for a plugin Claude Code never registered would make both
+ * report an install that did not happen.
+ */
+function recordedPlatforms(platforms, claudeFailures, depName) {
+  if (!claudeFailures || !claudeFailures.has(depName)) {
+    return platforms;
+  }
+  return platforms.filter(platform => platform !== 'claude');
+}
+
 function recordInstall(name, version, platforms, granular) {
   const data = loadInstalledJson();
   const entry = {
@@ -1146,7 +1161,8 @@ async function installPlugin(nameWithVersion, args) {
     copyFromPackage(installDir);
   }
 
-  const claudeFailures = [];
+  // depName -> errno, or null when Claude Code itself rejected the plugin
+  const claudeFailures = new Map();
 
   for (const platform of platforms) {
     if (platform === 'claude') {
@@ -1167,7 +1183,7 @@ async function installPlugin(nameWithVersion, args) {
               // Do not report success for a plugin Claude Code never received.
               // Keep the errno: a rejected plugin and a shim we could not spawn
               // at all need different fixes.
-              claudeFailures.push(err && err.code ? `${depName} (${err.code})` : depName);
+              claudeFailures.set(depName, (err && err.code) || null);
             }
           }
         }
@@ -1193,21 +1209,25 @@ async function installPlugin(nameWithVersion, args) {
   for (const depName of toFetch) {
     const dep = pluginMap[depName];
     const ver = depName === name && requestedVersion ? requestedVersion : (dep ? dep.version : 'unknown');
+    const recorded = recordedPlatforms(platforms, claudeFailures, depName);
     if (depName === name && filter) {
-      recordInstall(depName, ver, platforms, {
+      recordInstall(depName, ver, recorded, {
         scope: 'partial',
         agents: filter.agents,
         skills: filter.skills,
         commands: filter.commands
       });
     } else {
-      recordInstall(depName, ver, platforms);
+      recordInstall(depName, ver, recorded);
     }
   }
 
-  if (claudeFailures.length > 0) {
-    console.log(`\n[WARN] Installed ${name}, but Claude Code did not register: ${claudeFailures.join(', ')}`);
+  if (claudeFailures.size > 0) {
+    const failures = [...claudeFailures].map(([depName, code]) => (code ? `${depName} (${code})` : depName));
+    console.log(`\n[WARN] Installed ${name}, but Claude Code did not register: ${failures.join(', ')}`);
     console.log(`       Retry with: claude plugin install <name>@agentsys`);
+    // Match the --tool path, so `agentsys install x && next-step` stops here.
+    process.exitCode = 1;
   } else {
     console.log(`\n[OK] Installed ${name} successfully.`);
   }
@@ -2374,6 +2394,7 @@ module.exports = {
   loadInstalledJson,
   saveInstalledJson,
   recordInstall,
+  recordedPlatforms,
   recordRemove,
   satisfiesRange,
   checkCoreCompat,

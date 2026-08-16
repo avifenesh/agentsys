@@ -14,6 +14,7 @@ const {
   loadInstalledJson,
   saveInstalledJson,
   recordInstall,
+  recordedPlatforms,
   recordRemove,
   getInstalledJsonPath,
   detectInstalledPlatforms,
@@ -209,6 +210,30 @@ describe('installed.json operations', () => {
     recordInstall('perf', '1.0.0', ['opencode']);
     const data = loadInstalledJson();
     expect(Object.keys(data.plugins)).toEqual(['deslop', 'perf']);
+  });
+
+  test('a plugin Claude Code never registered is not recorded against claude', () => {
+    // removePlugin reads these platforms back to decide whether to run
+    // `claude plugin uninstall`, and `list` prints them, so recording a
+    // failed Claude install would make both report something that never landed.
+    const failures = new Map([['deslop', 'EINVAL']]);
+    recordInstall('deslop', '1.0.0', recordedPlatforms(['claude', 'opencode'], failures, 'deslop'));
+    recordInstall('perf', '1.0.0', recordedPlatforms(['claude', 'opencode'], failures, 'perf'));
+    const data = loadInstalledJson();
+    expect(data.plugins.deslop.platforms).toEqual(['opencode']);
+    expect(data.plugins.perf.platforms).toEqual(['claude', 'opencode']);
+  });
+
+  test('claude-only install that failed records no platforms at all', () => {
+    const failures = new Map([['deslop', null]]);
+    recordInstall('deslop', '1.0.0', recordedPlatforms(['claude'], failures, 'deslop'));
+    expect(loadInstalledJson().plugins.deslop.platforms).toEqual([]);
+  });
+
+  test('recordedPlatforms passes the list through when nothing failed', () => {
+    const platforms = ['claude', 'codex'];
+    expect(recordedPlatforms(platforms, new Map(), 'deslop')).toBe(platforms);
+    expect(recordedPlatforms(platforms, null, 'deslop')).toBe(platforms);
   });
 });
 
