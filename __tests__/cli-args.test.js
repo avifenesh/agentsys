@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 
 // Import parseArgs directly from cli.js (now exported for testing)
-const { parseArgs, VALID_TOOLS, pickClaudeExecutable, claudeExecutable } = require('../bin/cli.js');
+const { parseArgs, VALID_TOOLS, pickClaudeExecutable, claudeSpawnPlan, claudeExecutable } = require('../bin/cli.js');
 
 describe('CLI argument parsing', () => {
   // Save original process.exit and restore after each test
@@ -204,9 +204,11 @@ describe('pickClaudeExecutable', () => {
     expect(pickClaudeExecutable('win32', `${native}\r\n`)).toBe(native);
   });
 
-  test('takes the first match when where.exe reports several', () => {
-    const out = 'C:\\Users\\u\\.local\\bin\\claude.exe\r\nC:\\npm\\claude.cmd\r\n';
-    expect(pickClaudeExecutable('win32', out)).toBe('C:\\Users\\u\\.local\\bin\\claude.exe');
+  test('prefers claude.exe over a batch shim in either PATH order', () => {
+    const exe = 'C:\\Users\\u\\.local\\bin\\claude.exe';
+    const cmd = 'C:\\npm\\claude.cmd';
+    expect(pickClaudeExecutable('win32', `${exe}\r\n${cmd}\r\n`)).toBe(exe);
+    expect(pickClaudeExecutable('win32', `${cmd}\r\n${exe}\r\n`)).toBe(exe);
   });
 
   test('skips entries CreateProcess cannot launch', () => {
@@ -220,6 +222,47 @@ describe('pickClaudeExecutable', () => {
     expect(pickClaudeExecutable('win32', '  \r\n \r\n')).toBe('claude.cmd');
     expect(pickClaudeExecutable('win32', undefined)).toBe('claude.cmd');
     expect(pickClaudeExecutable('win32', 'C:\\npm\\claude.ps1\r\n')).toBe('claude.cmd');
+  });
+});
+
+describe('claudeSpawnPlan', () => {
+  const args = ['plugin', 'install', 'agentsys-core@agentsys'];
+
+  test('spawns a posix or native executable directly', () => {
+    expect(claudeSpawnPlan('claude', args)).toEqual({ file: 'claude', args });
+    expect(claudeSpawnPlan('C:\\bin\\claude.exe', args)).toEqual({ file: 'C:\\bin\\claude.exe', args });
+  });
+
+  test('routes a batch shim through cmd.exe, which execFileSync cannot spawn', () => {
+    // Node's src disallows direct .bat/.cmd spawning since the CVE-2024-27980
+    // fix, so a shim handed to execFileSync fails with EINVAL.
+    const shim = 'C:\\npm\\claude.cmd';
+    expect(claudeSpawnPlan(shim, args)).toEqual({
+      file: 'cmd.exe',
+      args: ['/d', '/s', '/c', '""C:\\npm\\claude.cmd" plugin install agentsys-core@agentsys"'],
+      verbatim: true
+    });
+    expect(claudeSpawnPlan('C:\\npm\\claude.bat', args).file).toBe('cmd.exe');
+  });
+
+  test('honours COMSPEC when routing through a shell', () => {
+    expect(claudeSpawnPlan('claude.cmd', args, 'C:\\Windows\\system32\\cmd.exe').file)
+      .toBe('C:\\Windows\\system32\\cmd.exe');
+  });
+
+  test('refuses arguments cmd.exe would reparse', () => {
+    // cmd.exe re-splits its command line, so an unquoted metacharacter would be
+    // a command injection - the exact hazard behind CVE-2024-27980.
+    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'x&calc'])).toThrow(/Refusing to pass/);
+    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a|b'])).toThrow(/Refusing to pass/);
+    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a b'])).toThrow(/Refusing to pass/);
+    expect(() => claudeSpawnPlan('claude.cmd', ['plugin', 'install', 'a"b'])).toThrow(/Refusing to pass/);
+  });
+
+  test('passes the same arguments through unchecked when no shell is involved', () => {
+    // Nothing reparses an execFileSync argv, so it needs no metacharacter guard.
+    expect(claudeSpawnPlan('claude', ['plugin', 'install', 'x&calc']).args)
+      .toEqual(['plugin', 'install', 'x&calc']);
   });
 
   test('claudeExecutable resolves and caches without a shell on this platform', () => {
@@ -281,10 +324,17 @@ describe('CLI integration', () => {
     expect(cliSource.includes('function installForKiro(')).toBe(true);
   });
 
-  test('claude plugin commands use execFileSync without a shell', () => {
-    expect(cliSource).toContain('execFileSync(claudeExecutable(),');
+  test('claude plugin commands go through claudeSpawn, never a shell string', () => {
+    expect(cliSource).toMatch(/claudeSpawn\(\['plugin', 'install'/);
     expect(cliSource).not.toMatch(/execSync\(`claude plugin/);
     expect(cliSource).not.toMatch(/execSync\('claude plugin/);
+    expect(cliSource).not.toMatch(/shell: true/);
+  });
+
+  test('every claude invocation is planned, so no call site can bypass the cmd.exe hop', () => {
+    const planned = cliSource.match(/claudeSpawn\(\[/g) || [];
+    expect(planned.length).toBeGreaterThanOrEqual(10);
+    expect(cliSource).not.toMatch(/execFileSync\(claudeExecutable\(\)/);
   });
 
   test('claude executable is never hardcoded to a single windows suffix', () => {

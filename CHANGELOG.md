@@ -15,8 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Windows: the Claude Code executable is now resolved from `where.exe` instead of assuming the npm shim. `execFileSync` does not apply PATHEXT, and the previous hardcoded `claude.cmd` did not exist for native-installer users who have `claude.exe` - those calls raised `ENOENT`, the error was swallowed, and the CLI reported success while installing nothing.
-- `agentsys install` no longer reports `[OK] Installed ... successfully` when Claude Code rejected a plugin. It names the plugins that failed and how to retry.
+- Windows: the Claude Code executable is now resolved from `where.exe` instead of assuming the npm shim. `execFileSync` does not apply PATHEXT, and the previous hardcoded `claude.cmd` did not exist for native-installer users who have `claude.exe` - those calls raised `ENOENT`, the error was swallowed, and the CLI reported success while installing nothing. A directly launchable `claude.exe` is preferred over a batch shim regardless of PATH order.
+- Windows: an npm-global `claude.cmd` shim is launched through `cmd.exe` rather than handed to `execFileSync`, which fails with `EINVAL` - Node's `src` has disallowed direct `.bat`/`.cmd` spawning since the CVE-2024-27980 fix in 18.20.2 / 20.12.2 / 21.7.3. Arguments are rejected unless they are free of whitespace and shell metacharacters, so the extra hop cannot reintroduce the injection surface #388 closed.
+- `agentsys install` no longer reports `[OK] Installed ... successfully` when Claude Code rejected a plugin. It names the plugins that failed, with the errno when the shim could not be spawned at all, and how to retry.
 - `lib/utils/command-parser.js` used a raw null byte where `'\0'` was intended. Git and grep classified the file as binary, so changes to it could not be reviewed as a diff. Also normalized to LF, the only CRLF-encoded source file in the repo.
 
 ## [6.0.1] - 2026-07-22
