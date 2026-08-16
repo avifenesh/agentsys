@@ -297,6 +297,10 @@ const COMMANDS = {
         }
         return typeof result.status === 'number' ? result.status : 1;
       } catch (err) {
+        // planShimSpawn refuses arguments cmd.exe cannot carry, and everything
+        // after `agentsys-dev test --` reaches it, so this path is user-facing:
+        // exiting 1 in silence would leave nothing to act on.
+        console.error(`[ERROR] ${err.message}`);
         return err.status || 1;
       }
     }
