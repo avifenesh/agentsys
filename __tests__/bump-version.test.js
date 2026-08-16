@@ -83,7 +83,15 @@ describe('bump-version', () => {
 
     test('spawns npm directly off Windows', () => {
       const { execFileSync } = require('child_process');
-      expect(main(['3.7.3'])).toBe(0);
+      const platform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+
+      try {
+        expect(main(['3.7.3'])).toBe(0);
+      } finally {
+        Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+      }
+
       expect(execFileSync).toHaveBeenCalledWith(
         'npm',
         ['version', '3.7.3', '--no-git-tag-version'],
