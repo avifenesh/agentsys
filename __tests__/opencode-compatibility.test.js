@@ -254,6 +254,7 @@ describe('OpenCode Compatibility', () => {
 
   // The former 'Install script validation' block asserted on
   // adapters/opencode/install.sh, which was removed: it sourced files from the
-  // deleted plugins/ tree and so installed nothing. bin/cli.js is the only
-  // installer; its XDG_CONFIG_HOME handling is covered in dev-install.test.js.
+  // deleted plugins/ tree and so installed nothing. Installs now go through
+  // bin/cli.js (npm) or scripts/dev-install.js (dev); the XDG_CONFIG_HOME
+  // handling those share is covered in dev-install.test.js.
 });

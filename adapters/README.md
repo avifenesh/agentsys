@@ -233,7 +233,7 @@ Found a bug or want to add support for another tool?
 1. Open an issue: https://github.com/agent-sh/agentsys/issues
 2. Submit a PR with:
    - New adapter directory: `adapters/[tool-name]/`
-   - Install support in `bin/cli.js` (the only installer)
+   - Install support in `bin/cli.js` (npm installs) and `scripts/dev-install.js` (dev installs)
    - Documentation: `README.md`
    - Update this file
 
