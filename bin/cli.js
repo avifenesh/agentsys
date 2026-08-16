@@ -860,9 +860,17 @@ function saveInstalledJson(data) {
  * removePlugin uses them to decide whether to run `claude plugin uninstall`.
  * Recording 'claude' for a plugin Claude Code never registered would make both
  * report an install that did not happen.
+ *
+ * recordInstall replaces the entry wholesale, so a platform already recorded is
+ * kept: a failed re-install is not evidence that the earlier install never
+ * landed, and dropping it would leave a plugin loaded in Claude Code that
+ * removePlugin then refuses to uninstall.
  */
-function recordedPlatforms(platforms, claudeFailures, depName) {
+function recordedPlatforms(platforms, claudeFailures, depName, recordedBefore) {
   if (!claudeFailures || !claudeFailures.has(depName)) {
+    return platforms;
+  }
+  if (Array.isArray(recordedBefore) && recordedBefore.includes('claude')) {
     return platforms;
   }
   return platforms.filter(platform => platform !== 'claude');
@@ -1215,10 +1223,12 @@ async function installPlugin(nameWithVersion, args) {
   }
 
   // Record in installed.json
+  const recordedBefore = loadInstalledJson().plugins;
   for (const depName of toFetch) {
     const dep = pluginMap[depName];
     const ver = depName === name && requestedVersion ? requestedVersion : (dep ? dep.version : 'unknown');
-    const recorded = recordedPlatforms(platforms, claudeFailures, depName);
+    const previous = recordedBefore[depName] && recordedBefore[depName].platforms;
+    const recorded = recordedPlatforms(platforms, claudeFailures, depName, previous);
     if (depName === name && filter) {
       recordInstall(depName, ver, recorded, {
         scope: 'partial',

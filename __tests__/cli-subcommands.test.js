@@ -235,6 +235,25 @@ describe('installed.json operations', () => {
     expect(recordedPlatforms(platforms, new Map(), 'deslop')).toBe(platforms);
     expect(recordedPlatforms(platforms, null, 'deslop')).toBe(platforms);
   });
+
+  test('a failed re-install does not erase a Claude registration that already exists', () => {
+    // recordInstall replaces the entry wholesale, so dropping 'claude' after a
+    // failed re-install would leave the plugin loaded in Claude Code while
+    // removePlugin refuses to uninstall it.
+    recordInstall('deslop', '1.0.0', ['claude', 'opencode']);
+    const before = loadInstalledJson().plugins.deslop.platforms;
+    const failures = new Map([['deslop', 'ETIMEDOUT']]);
+    recordInstall('deslop', '1.1.0', recordedPlatforms(['claude', 'opencode'], failures, 'deslop', before));
+    const entry = loadInstalledJson().plugins.deslop;
+    expect(entry.platforms).toEqual(['claude', 'opencode']);
+    expect(entry.version).toBe('1.1.0');
+  });
+
+  test('a first install that failed still drops claude', () => {
+    const failures = new Map([['deslop', 'EINVAL']]);
+    expect(recordedPlatforms(['claude', 'opencode'], failures, 'deslop', undefined)).toEqual(['opencode']);
+    expect(recordedPlatforms(['claude', 'opencode'], failures, 'deslop', ['opencode'])).toEqual(['opencode']);
+  });
 });
 
 describe('parseInstallTarget', () => {
