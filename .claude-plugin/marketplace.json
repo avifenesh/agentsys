@@ -1,7 +1,7 @@
 {
   "name": "agentsys",
   "description": "26 specialized plugins for AI workflow automation - task orchestration, PR workflow, slop detection, code review, drift detection, enhancement analysis, documentation sync, unified static analysis, durable memory, negative behavior memory, skill and system prompt curation, perf investigations, topic research, agent config linting, cross-tool AI consultation, structured AI debate, workflow pattern learning, codebase onboarding, contributor guidance, Zig language support, Mojo language support, and Ada/SPARK language support",
-  "version": "6.0.1",
+  "version": "6.0.2",
   "owner": {
     "name": "Avi Fenesh",
     "url": "https://github.com/avifenesh"

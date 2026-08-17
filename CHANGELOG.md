@@ -7,7 +7,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [6.0.2] - 2026-08-17
+
+### Added
+
+- CI runs the jest suite on `windows-latest` as well as Linux, with `fail-fast` disabled so a Windows-only failure does not hide the Linux result (#392). The Windows-specific paths in this repo - `where.exe` executable resolution, PATHEXT-aware lookups, and the `cmd.exe` routing `.cmd` shims have needed since the CVE-2024-27980 fix - had never been exercised by CI: every regression in them so far was found by a user on Windows or by reading the code, which is why one defect class took three PRs to close.
+- Dependabot configuration: weekly npm checks with minor and patch updates grouped into one PR (#385).
+
+### Changed
+
+- `jest` 29.7.0 -> 30.4.2 (#387). Jest 30 treats `--testPathPattern` as a fatal deprecation, so the targeted-test commands in the checklists now pass `--testPathPatterns`.
 
 ### Removed
 
@@ -16,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Claude plugin marketplace/install/update/uninstall in `bin/cli.js` now spawn via `execFileSync` with an argv array, so no plugin ID reaches a shell (#388).
+- Lockfile bump closing GHSA-5p4m-2wfm-xmqj in `js-yaml`, together with the remaining audit-fixable high-severity advisories (#386). Transitive dev dependencies; no manifest range changed.
+- Lockfile bump taking `brace-expansion` to 1.1.16, closing its high-severity ReDoS advisory (#383). Transitive dev dependency; no manifest range changed.
 
 ### Fixed
 
@@ -24,7 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `agentsys install` no longer reports `[OK] Installed ... successfully` when Claude Code rejected a plugin. It names the plugins that failed, with the errno when the shim could not be spawned at all, and how to retry. The same now applies when the `claude` CLI is not on PATH at all (`~/.claude` alone was enough to mark the platform as installed) and when a dependency id would be rejected. Such a plugin is also no longer recorded against `claude` in `installed.json` - `agentsys list` and `agentsys remove` read those platforms back - though a registration recorded by an earlier successful install is preserved, since a failed re-install is not evidence the first one never landed. The process now exits non-zero, matching the `--tool` path so `agentsys install x && ...` stops.
 - Windows: `agentsys-dev test`, `agentsys-dev bump`, `runBenchmark`, and `runProfiling` all handed a `.cmd` shim straight to `spawnSync`/`execFileSync`, which fails with `EINVAL` for the same reason the Claude shim did - `resolveExecutableForPlatform` turns `npm` into `npm.cmd` and `node_modules/.bin/vitest` into `vitest.cmd`, so every benchmark, profile, and dev test run died on Windows. These now route through `cmd.exe` via a shared `planShimSpawn` in `lib/utils/command-parser.js`, which `bin/cli.js` uses as well so the two mechanisms cannot drift apart. Unlike the Claude call sites, these carry user-written commands, so arguments are quoted for `cmd.exe` rather than rejected for containing whitespace or metacharacters; a literal `"`, `%`, CR or LF is still refused, in the executable as well as the arguments, since none survives `cmd.exe` intact - `bench\ncalc` would otherwise reach the command line, which `bin/cli.js` is shielded from only by its allowlist. The rewrite is win32-only: a repo-local `build.cmd` on Linux is spawnable as it stands, and routing it through a `cmd.exe` that is not there would only turn a working command into `ENOENT`. `agentsys-dev test` also prints the error it used to swallow, since a refused argument now reaches the user from there.
 - Windows: a custom source naming an npm-shipped CLI (`npx`, `pnpm`, `yarn`) was always probed as unavailable - `execFileSync` applies no PATHEXT, so the bare name raised `ENOENT`, and the `.cmd` it needs cannot be spawned directly either. `probeCLI` resolves the shim and routes it the same way.
+- Windows: `scripts/dev-install.js` ran all four of its external commands through `execSync`, i.e. through a shell (#393). `claude` and `npm` are `.cmd` shims there, so only the implicit `cmd.exe` hop made them work at all - anything but a shell string needs the explicit hop `planShimSpawn` builds, since Node has refused direct `.cmd` spawns since the CVE-2024-27980 fix and `execFileSync` applies no PATHEXT to a bare name. The plugin-uninstall line also interpolated a discovered plugin name into that shell string; the name is matched against `/^[a-z0-9][a-z0-9-]*$/` first, so nothing could reach it, but the guard and the interpolation sat in different functions and were the only thing making the line safe. All four calls are now argv lists through one `runCommand` helper, so shim resolution and the `cmd.exe` hop happen in one place and a name holding shell metacharacters stays a single argument.
+- Windows: `scripts/dev-install.js` resolved `claude` with `resolveExecutableForPlatform`, which maps the bare name to `claude.cmd` - the assumption #390 removed from `bin/cli.js` (#394). The npm global install does ship `claude.cmd`, but the native installer ships `claude.exe`, so `commandExists('claude')` passed while the spawn failed, and with both call sites discarding the error the marketplace removal and every plugin uninstall silently did nothing. The `where.exe`-based pick moved out of `bin/cli.js` into `lib/utils/claude-executable.js` so both callers get the same answer, and the discarded errors became a warning: a numeric exit status means `claude` ran and refused, which is normal for a best-effort removal, while a spawn failure (status `null` with an errno, or `cmd.exe` reporting 9009 for a command it could not launch) means it never ran and is worth a line.
+- Windows checkouts: `.gitattributes` pins text files to LF (#392). `generate-docs` compares generated sections byte-for-byte against the file on disk, so with Git's CRLF conversion every section read as stale and `--check` exited 1. The marketplace contract test read `scripts/plugins.txt` the same way, keeping a trailing `\r` on each name; it now tolerates CRLF so a checkout setting cannot masquerade as a mismatched plugin.
 - `lib/utils/command-parser.js` used a raw null byte where `'\0'` was intended. Git and grep classified the file as binary, so changes to it could not be reviewed as a diff. Also normalized to LF, the only CRLF-encoded source file in the repo.
+
+### Tests
+
+- The `planShimSpawn` tests faked the platform but not `COMSPEC`, so their assertions on a bare `cmd.exe` only held on a host where that variable is unset - the Windows runner reports `C:\Windows\system32\cmd.exe` and six of them failed on the first Windows CI run. `COMSPEC` is now faked alongside the platform, with cases for both the variable's value and the bare `cmd.exe` left when it is unset (#392).
 
 ## [6.0.1] - 2026-07-22
 
