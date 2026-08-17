@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Deleted `adapters/codex/install.sh` and `adapters/opencode/install.sh` (#395). Both sourced every command and skill from `plugins/`, a tree removed when plugins moved to standalone repos, so each mapping took the "skipped" branch and the scripts installed nothing while still printing `[OK] Installation complete!` and listing skills they had not written. They were not inert: before copying, they `rm -rf`'d five skill directories and `~/.codex/prompts`, so running one deleted a working install and reported success. `agentsys --tool codex` / `agentsys --tool opencode` (`bin/cli.js`) is the supported install path, with `scripts/dev-install.js` covering dev installs, and the adapter READMEs, the OpenCode plugin checklist, and the `maintain-cross-platform` skill no longer point at the scripts.
+
 ### Security
 
 - Claude plugin marketplace/install/update/uninstall in `bin/cli.js` now spawn via `execFileSync` with an argv array, so no plugin ID reaches a shell (#388).

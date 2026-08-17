@@ -252,80 +252,9 @@ describe('OpenCode Compatibility', () => {
     });
   });
 
-  describe('Install script validation', () => {
-    it('should have OpenCode install script', () => {
-      const installPath = path.join(__dirname, '../adapters/opencode/install.sh');
-      expect(fs.existsSync(installPath)).toBe(true);
-    });
-
-    it('should install lib files to OpenCode commands directory', () => {
-      const installScript = fs.readFileSync(
-        path.join(__dirname, '../adapters/opencode/install.sh'),
-        'utf-8'
-      );
-
-      // Should copy lib files (cp -r or similar)
-      expect(installScript).toMatch(/cp\s+-r|cp.*\$.*lib/);
-
-      // Should define OPENCODE_CONFIG_DIR using XDG path (not ~/.opencode/)
-      expect(installScript).toMatch(/OPENCODE_CONFIG_DIR/);
-      // Should reference both XDG_CONFIG_HOME and .config/opencode
-      expect(installScript).toContain('XDG_CONFIG_HOME');
-      expect(installScript).toContain('.config/opencode');
-    });
-
-    it('should handle empty/whitespace XDG_CONFIG_HOME like JavaScript', () => {
-      const installScript = fs.readFileSync(
-        path.join(__dirname, '../adapters/opencode/install.sh'),
-        'utf-8'
-      );
-
-      // Should check for non-empty AND non-whitespace (matching JS behavior)
-      // The bash pattern [^[:space:]] ensures whitespace-only values are rejected
-      expect(installScript).toContain('-n "${XDG_CONFIG_HOME}"');
-      expect(installScript).toContain('[^[:space:]]');
-    });
-
-    it('should clean up legacy ~/.opencode/ paths', () => {
-      const installScript = fs.readFileSync(
-        path.join(__dirname, '../adapters/opencode/install.sh'),
-        'utf-8'
-      );
-
-      // Should have legacy cleanup
-      expect(installScript).toMatch(/LEGACY_OPENCODE_DIR/);
-      expect(installScript).toMatch(/legacy/i);
-    });
-
-    it('should have complete agent list matching dev-install.js', () => {
-      const installScript = fs.readFileSync(
-        path.join(__dirname, '../adapters/opencode/install.sh'),
-        'utf-8'
-      );
-
-      // Critical agents that must be in both lists
-      const criticalAgents = [
-        'exploration-agent.md',
-        'implementation-agent.md',
-        'planning-agent.md',
-        'perf-orchestrator.md',
-        'enhancement-orchestrator.md',
-        'worktree-manager.md'
-      ];
-
-      for (const agent of criticalAgents) {
-        expect(installScript).toContain(agent);
-      }
-    });
-
-    it('should handle path substitutions for OpenCode', () => {
-      const installScript = fs.readFileSync(
-        path.join(__dirname, '../adapters/opencode/install.sh'),
-        'utf-8'
-      );
-
-      // Should transform CLAUDE_PLUGIN_ROOT to PLUGIN_ROOT
-      expect(installScript).toMatch(/CLAUDE_PLUGIN_ROOT.*PLUGIN_ROOT|sed.*PLUGIN_ROOT/);
-    });
-  });
+  // The former 'Install script validation' block asserted on
+  // adapters/opencode/install.sh, which was removed: it sourced files from the
+  // deleted plugins/ tree and so installed nothing. Installs now go through
+  // bin/cli.js (npm) or scripts/dev-install.js (dev); the XDG_CONFIG_HOME
+  // handling those share is covered in dev-install.test.js.
 });
