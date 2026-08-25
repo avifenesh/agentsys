@@ -43,10 +43,12 @@ AI models can write code. That's not the hard part anymore. The hard part is eve
 ---
 > Building custom skills, agents, hooks, or MCP tools? [agnix](https://github.com/agent-sh/agnix) is the CLI + LSP linter that catches config errors before they fail silently - real-time IDE validation, auto suggestions, auto-fix, and 423 rules for Claude Code, Codex, OpenCode, Cursor, Kiro, Copilot, Gemini CLI, Cline, Windsurf, Roo Code, Amp, and more.
 
-## What's New in 6.0.1
+## What's New in 6.0.2
 
-- Restores Cursor and Kiro installation after a shared-core regression.
-- Removes the unused vulnerable `js-yaml` production dependency.
+- Fixes Windows installs: the Claude Code executable is resolved with `where.exe` instead of an assumed `claude.cmd`, and `.cmd` shims are launched through `cmd.exe` at every spawn site.
+- `agentsys install` reports failures instead of printing success when Claude Code rejected a plugin, and exits non-zero.
+- Deletes the two adapter `install.sh` scripts, which deleted a working install and reported success; `agentsys --tool codex` / `--tool opencode` is the install path.
+- CI now runs the suite on Windows as well as Linux.
 
 ## What This Is
 

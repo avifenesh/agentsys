@@ -1,6 +1,6 @@
 {
   "name": "agentsys",
-  "version": "6.0.1",
+  "version": "6.0.2",
   "description": "Professional-grade slash commands for Claude Code with cross-platform support",
   "keywords": [
     "workflow",

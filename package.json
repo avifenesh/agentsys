@@ -1,6 +1,6 @@
 {
   "name": "agentsys",
-  "version": "6.0.1",
+  "version": "6.0.2",
   "description": "A modular runtime and orchestration system for AI agents - works with Claude Code, OpenCode, and Codex CLI",
   "main": "lib/platform/detect-platform.js",
   "type": "commonjs",
