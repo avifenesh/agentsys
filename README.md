@@ -23,6 +23,8 @@
   <em>Plugins distributed as standalone repos under <a href="https://github.com/agent-sh">agent-sh</a> org - agentsys is the marketplace &amp; installer</em>
 </p>
 
+> ⚡ Running this agent 24/7? [**tiyuvta inference**](https://inference.tiyuvta.ai) — hosted LLM inference built for always-on agents, OpenAI/Anthropic-compatible APIs.
+
 <p align="center">
   <a href="#commands">Commands</a> · <a href="#installation">Installation</a> · <a href="https://agent-sh.github.io/agentsys/">Website</a> · <a href="https://github.com/agent-sh/agentsys/discussions">Discussions</a>
 </p>
